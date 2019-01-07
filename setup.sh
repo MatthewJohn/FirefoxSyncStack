@@ -5,17 +5,21 @@ export BASE_DOMAIN=ff.dockstudios.co.uk
 
 
 apt-get update
-apt install curl nodejs npm git postfix memcached redis mysql-server graphicsmagick --assume-yes
+apt install curl nodejs npm git postfix memcached redis mysql-server graphicsmagick libssl-dev pkg-config --assume-yes
 npm install -g grunt-cli grunt
 
 # Install Rust
-curl https://sh.rustup.rs -sSf | sh
-
+curl https://sh.rustup.rs -sSf | sh -y
+export PATH=$PATH:$HOME/.cargo/bin
+source $HOME/.cargo/env
+# Build failure with 'unresolved import `core::ffi::c_void`'
+#rustup default nightly
+#rustup update && cargo update
 
 cd /
 git clone https://github.com/mozilla-services/pushbox
 cd pushbox
-
+rm rust-toolchain
 cat > /pushbox/Rocket.toml <<EOF
 [production]
 ## Database DSN URL.
@@ -29,9 +33,10 @@ server_token="changeme"
 [global.limits]
 # Maximum accepted data size for JSON payloads.
 json = 1048576
-
 EOF
-
+cargo run || true
+sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
+cargo run
 
 cd /
 git clone git://github.com/mozilla/fxa-auth-server.git
@@ -330,6 +335,14 @@ module.exports = function (fs, path, url, convict) {
 }
 EOF
 
+
+cd /
+git clone https://github.com/mozilla-services/syncserver
+cd /syncserver
+
+
+
+
 docker cp  /fxa-auth-server/config/index.js
 docker cp /fxa-content-server/server/config/local.json
 docker cp /fxa-auth-db-mysql/config/config.js
@@ -340,8 +353,8 @@ echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '';
 service memcached start
 redis-server &
 
+pushd /pushbox; cargo run &; popd
 pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh &; popd
-
 pushd /fxa-content-server; NODE_ENV=production npm start &; popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start &; popd
 pushd /fxa-profile-server; NODE_ENV=prod npm start &; popd
