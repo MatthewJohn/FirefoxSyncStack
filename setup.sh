@@ -12,7 +12,15 @@ export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
 
 
 apt-get update
-apt install curl nodejs npm git postfix memcached redis mysql-server graphicsmagick libssl-dev pkg-config mysql-client libmysqlclient-dev --assume-yes
+apt install curl nodejs npm git postfix \
+            memcached redis mysql-server \
+            graphicsmagick libssl-dev pkg-config \
+            mysql-client libmysqlclient-dev nginx \
+            libffi-dev g++ python2.7 python-pip \
+            --assume-yes
+# Not installed for syncserver
+# libstdc++
+# openssl-dev
 npm install -g grunt-cli grunt
 
 # Install Rust
@@ -73,7 +81,7 @@ cat > /fxa-email-service/config/default.json <<EOF
     ]
   },
   "hmackey": "changeme",
-  "host": "0.0.0.0",
+  "host": "127.0.0.1",
   "log": {
     "level": "off",
     "format": "mozlog"
@@ -190,7 +198,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
     "duration": 86400000
   },
   "env": "production",
-  "use_https": true,
+  "use_https": false,
   "static_max_age" : 0,
   "route_log_format": "dev_fxa",
   "logging": {
@@ -241,7 +249,7 @@ module.exports = function (fs, path, url, convict) {
     },
     hostname: {
       doc: 'The IP address the server should bind to',
-      default: '0.0.0.0',
+      default: '127.0.0.1',
       env: 'HOST',
     },
     port: {
@@ -471,7 +479,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
   },
   "publicUrl":"https://profile.${BASE_DOMAIN}",
   "server":{
-     "host":"0.0.0.0",
+     "host":"127.0.0.1",
      "port":1111
   },
   "worker":{
@@ -496,7 +504,9 @@ EOF
 cd /
 git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
-
+pip install --upgrade pip
+pip install --upgrade --no-cache-dir -r requirements.txt
+# pip install --upgrade --no-cache-dir -r dev-requirements.txt
 
 
 
