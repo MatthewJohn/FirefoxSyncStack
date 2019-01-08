@@ -205,6 +205,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
     api_url: 'http://127.0.0.1:10140',
     proxy_url: 'http://127.0.0.1:1114'
   },
+  "sync_tokenserver_url": "https://token.${BASE_DOMAIN}",
   "client_sessions": {
     "cookie_name": "session",
     "secret": "changeme",
