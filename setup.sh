@@ -194,7 +194,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "profile_images_url": "https://static.profile.${BASE_DOMAIN}",
   "marketing_email": {
     "api_url": "http://127.0.0.1:1114",
-    "preferences_url": ""
+    "preferences_url": "http://localhost:1115"
   },
   "fxaccount_url": "https://api.${BASE_DOMAIN}",
   "geodb": {
