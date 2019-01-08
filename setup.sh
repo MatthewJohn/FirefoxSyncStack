@@ -1,11 +1,18 @@
+
+# Other Projects
+# https://github.com/mozilla-services/loop-server.git
+# https://github.com/mozilla/fxa-local-dev
+
 export MYSQL_USER=root
 export MYSQL_PASSWORD=
 export BASE_DOMAIN=ff.dockstudios.co.uk
+export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
+export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
 
 
 
 apt-get update
-apt install curl nodejs npm git postfix memcached redis mysql-server graphicsmagick libssl-dev pkg-config --assume-yes
+apt install curl nodejs npm git postfix memcached redis mysql-server graphicsmagick libssl-dev pkg-config mysql-client libmysqlclient-dev --assume-yes
 npm install -g grunt-cli grunt
 
 # Install Rust
@@ -19,7 +26,7 @@ source $HOME/.cargo/env
 cd /
 git clone https://github.com/mozilla-services/pushbox
 cd pushbox
-rm rust-toolchain
+#rm rust-toolchain
 cat > /pushbox/Rocket.toml <<EOF
 [production]
 ## Database DSN URL.
@@ -36,109 +43,188 @@ json = 1048576
 EOF
 cargo run || true
 sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
-cargo run
+
+
+
+cd /
+git clone https://github.com/mozilla/fxa-email-service
+cd /fxa-email-service
+rm /fxa-email-service/config/dev.json
+cat > /fxa-email-service/config/default.json <<EOF
+{
+  "authdb": {
+    "baseuri": "http://auth.${BASE_DOMAIN}/"
+  },
+  "aws": {
+    "region": "eu-west-1"
+  },
+  "deliveryproblemlimits": {
+    "enabled": true,
+    "complaint": [
+      { "period": "day", "limit": 0 },
+      { "period": "year", "limit": 1 }
+    ],
+    "hard": [
+      { "period": "day", "limit": 0 },
+      { "period": "year", "limit": 1 }
+    ],
+    "soft": [
+      { "period": "5 minutes", "limit": 0 }
+    ]
+  },
+  "hmackey": "changeme",
+  "host": "0.0.0.0",
+  "log": {
+    "level": "off",
+    "format": "mozlog"
+  },
+  "port": 8001,
+  "provider": {
+    "default": "smtp",
+    "forcedefault": true
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379
+  },
+  "secretkey": "${MAIl_ROCKET_TOKEN}",
+  "sender": {
+    "address": "accounts@${BASE_DOMAIN}",
+    "name": "Firefox Accounts"
+  },
+  "smtp": {
+    "host": "127.0.0.1",
+    "port": 25
+  }
+}
+EOF
+
+
+
 
 cd /
 git clone git://github.com/mozilla/fxa-auth-server.git
 cd /fxa-auth-server
 npm install
+cat > /fxa-auth-server/config/prod.json <<EOF
+{
+  "contentServer": {
+    "url": "https://content.${BASE_DOMAIN}"
+  },
+  "customsUrl": "none",
+  "lockoutEnabled": true,
+  "log": {
+    "fmt": "pretty",
+    "level": "info"
+  },
+  "sms": {
+    "isStatusGeoEnabled": false,
+    "useMock": true
+  },
+  "smtp": {
+    "host": "127.0.0.1",
+    "port": 25,
+    "secure": false,
+    "redirectDomain": "auth.${BASE_DOMAIN}"
+  },
+  "securityHistory": {
+    "ipProfiling": {
+      "allowedRecency": 0
+    }
+  },
+  "lastAccessTimeUpdates": {
+    "enabled": true,
+    "sampleRate": 1
+  },
+  "pushbox": {
+    "enabled": true,
+    "url": "http://localhost:8002/",
+    "key": "${ROCKET_TOKEN}",
+    "maxTTL": "28 days"
+  },
+  metrics: {
+    flow_id_expiry: 7200000,
+    flow_id_key: 'wibble'
+  },
+  oauth: {
+     clientIds: {},
+     url: 'https://oauth.${BASE_DOMAIN}',
+     secretKey: "changeme",
+     keepAlive: false
+   }
+}
+EOF
 NODE_ENV=prod node ./scripts/gen_keys.js
 NODE_ENV=prod node ./fxa-oauth-server/scripts/gen_keys.js
 NODE_ENV=prod node ./scripts/gen_vapid_keys.js
 
+
+
+
+
+
+
+
+
+
 cd /
 git clone https://github.com/mozilla/fxa-content-server
 cd /fxa-content-server
-npm install --production
+npm install npm@6 webpack@4.16.1 --global
+/usr/local/bin/npm install --production
 npm install bluebird
-npm run build-production
+./scripts/download_l10n.sh
+/usr/local/bin/npm run build-production
 #grunt install
 #grunt server:dist
+cat > /fxa-content-server/server/config/production.json <<EOF
+{
+  "public_url": "https://content.${BASE_DOMAIN}",
+  "oauth_client_id": "98e6508e88680e1a",
+  "oauth_url": "https://oauth.${BASE_DOMAIN}",
+  "profile_url": "https://profile.${BASE_DOMAIN}",
+  "profile_images_url": "https://static.profile.${BASE_DOMAIN}",
+  "client_sessions": {
+    "cookie_name": "session",
+    "secret": "changeme",
+    "duration": 86400000
+  },
+  "env": "production",
+  "use_https": true,
+  "static_max_age" : 0,
+  "route_log_format": "dev_fxa",
+  "logging": {
+    "fmt": "pretty",
+    "level": "debug"
+  },
+  "scopedKeys": {
+    "enabled": true
+  },
+  "allowed_metrics_flow_cors_origins": ["https://mail.${BASE_DOMAIN}"],
+  "allowed_parent_origins": ["https://oauth.${BASE_DOMAIN}"],
+  "static_directory": "dist",
+  "page_template_subdirectory": "dist",
+  "csp": {
+    "enabled": true,
+    "reportOnly": true
+  }
+}
+EOF
+
+
+
+
+
+
+
+
+
 
 cd /
 git clone https://github.com/mozilla/fxa-auth-db-mysql
 cd /fxa-auth-db-mysql
 npm install
-node bin/db_patcher.js
-
-cd /
-git clone https://github.com/mozilla/fxa-profile-server
-cd fxa-profile-server
-npm install
-sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
-sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
-
-
-volumes /var/lib/mysql
-
-
-cat > /fxa-profile-server/config/production.json <<EOF
-{
-  "env": "production",
-  "logging": {
-    "fmt": "pretty",
-    "level": "all",
-    "debug": true
-  },
-  "db": {
-    "driver": "mysql"
-  },
-  "img": {
-    "driver": "local"
-  },
-  "customsUrl": "https://profile.${BASE_DOMAIN}/a/{id}",
-  "serverCache": {
-    "useRedis": true
-  },
-  "authServer": {
-    "url":"https://auth.${BASE_DOMAIN}:9000/v1"
-  },
-  "mysql":{
-     "createSchema":true,
-     "user":"${MYSQL_USER}",
-     "password":"${MYSQL_PASSWORD}",
-     "database":"fxa_profile",
-     "host":"localhost",
-     "port":"3306"
-  },
-  "oauth":{
-     "url":"https://oauth.${BASE_DOMAIN}/v1"
-  },
-  "publicUrl":"https://profile.${BASE_DOMAIN}",
-  "server":{
-     "host":"0.0.0.0",
-     "port":1111
-  },
-  "worker":{
-     "host":"127.0.0.1",
-     "port":1113,
-     "url":"http://127.0.0.1:1113"
-  },
-  "serverCache":{
-     "redis":{
-        "host":"127.0.0.1",
-        "keyPrefix":"fxa-profile",
-        "port":6379
-     },
-     "useRedis":true,
-     "expiresIn":3600000,
-     "generateTimeout":11000
-  }
-}
-EOF
-
 cat > /fxa-auth-db-mysql/config/index.js <<EOF
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-var fs = require('fs')
-var path = require('path')
-var url = require('url')
-var convict = require('convict')
-
-module.exports = require('./config')(fs, path, url, convict)
-root@5e663df9cabf:/fxa-auth-db-mysql# cat config/config.js
 
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -160,7 +246,7 @@ module.exports = function (fs, path, url, convict) {
     },
     port: {
       doc: 'The port the server should bind to',
-      default: 8000,
+      default: 8080,
       format: 'port',
       env: 'PORT',
     },
@@ -334,6 +420,77 @@ module.exports = function (fs, path, url, convict) {
   return conf.getProperties()
 }
 EOF
+node bin/db_patcher.js
+
+
+
+
+
+
+
+
+
+cd /
+git clone https://github.com/mozilla/fxa-profile-server
+cd fxa-profile-server
+npm install
+sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
+sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
+
+cat > /fxa-profile-server/config/production.json <<EOF
+{
+  "env": "production",
+  "logging": {
+    "fmt": "pretty",
+    "level": "all",
+    "debug": true
+  },
+  "db": {
+    "driver": "mysql"
+  },
+  "img": {
+    "driver": "local"
+  },
+  "customsUrl": "https://profile.${BASE_DOMAIN}/a/{id}",
+  "serverCache": {
+    "useRedis": true
+  },
+  "authServer": {
+    "url":"https://auth.${BASE_DOMAIN}:9000/v1"
+  },
+  "mysql":{
+     "createSchema":true,
+     "user":"${MYSQL_USER}",
+     "password":"${MYSQL_PASSWORD}",
+     "database":"fxa_profile",
+     "host":"localhost",
+     "port":"3306"
+  },
+  "oauth":{
+     "url":"https://oauth.${BASE_DOMAIN}/v1"
+  },
+  "publicUrl":"https://profile.${BASE_DOMAIN}",
+  "server":{
+     "host":"0.0.0.0",
+     "port":1111
+  },
+  "worker":{
+     "host":"127.0.0.1",
+     "port":1113,
+     "url":"http://127.0.0.1:1113"
+  },
+  "serverCache":{
+     "redis":{
+        "host":"127.0.0.1",
+        "keyPrefix":"fxa-profile",
+        "port":6379
+     },
+     "useRedis":true,
+     "expiresIn":3600000,
+     "generateTimeout":11000
+  }
+}
+EOF
 
 
 cd /
@@ -348,13 +505,35 @@ docker cp /fxa-content-server/server/config/local.json
 docker cp /fxa-auth-db-mysql/config/config.js
 
 
+volumes /var/lib/mysql
+
+
 service mysql start
 echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
+echo 'CREATE DATABASE pushbox' | mysql
 service memcached start
 redis-server &
 
-pushd /pushbox; cargo run &; popd
-pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh &; popd
-pushd /fxa-content-server; NODE_ENV=production npm start &; popd
-pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start &; popd
-pushd /fxa-profile-server; NODE_ENV=prod npm start &; popd
+# Ports
+# 8002 - pushbox
+# 8080 - authdb
+# 3030 - account content
+# 3080 - account redirect
+# 1111 - profile
+# 1112 - profile static - TBC
+# 8001 - email
+
+# domains
+# auth.${BASE_DOMAIN} - fxa-auth-server
+# profile.${BASE_DOMAIN}
+# static.profile.${BASE_DOMAIN}
+# oath.${BASE_DOMAIN}
+# mail.${BASE_DOMAIN}
+# content.${BASE_DOMAIN}
+
+pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=8002 ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
+pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
+pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
+pushd /fxa-auth-server; NODE_ENV=prod node ./node_modules/fxa-customs-server/bin/customs_server.js & NODE_ENV=prod scripts/start-server.sh & popd
+pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
+pushd /fxa-profile-server; NODE_ENV=production npm start & popd
