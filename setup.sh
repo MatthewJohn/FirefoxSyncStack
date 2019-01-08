@@ -542,7 +542,7 @@ public_url = https://sync.${BASE_DOMAIN}/
 # any BrowserID issuer.  The below restricts it to accept assertions
 # from just the production Firefox Account servers.  If you are hosting
 # your own account server, put its public URL here instead.
-identity_provider = https://accounts.${BASE_DOMAIN}/
+identity_provider = https://${BASE_DOMAIN}/
 
 # This defines the database in which to store all server data.
 #sqluri = sqlite:////tmp/syncserver.db
@@ -570,6 +570,70 @@ allow_new_users = true
 force_wsgi_environ = true
 EOF
 
+
+cat > /etc/nginx/sites-enabled/default <<EOF
+server {
+	listen 80 default_server;
+	listen [::]:80 default_server;
+
+	server_name _;
+
+	location / {
+    rewrite ^.*\$ https://${BASE_DOMAIN} redirect;
+	}
+}
+
+server {
+	listen 443 default_server;
+	listen [::]:443 default_server;
+
+	server_name _;
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+	location / {
+    rewrite ^.*\$ https://${BASE_DOMAIN} redirect;
+	}
+}
+
+server {
+  listen 443 ssl;
+  server_name sync.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass http://127.0.0.1:5000/;
+   }
+}
+server {
+  listen 443 ssl;
+  server_name ${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass http://127.0.0.1:3030/;
+   }
+}
+EOF
 
 docker cp  /fxa-auth-server/config/index.js
 docker cp /fxa-content-server/server/config/local.json
@@ -612,4 +676,5 @@ pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
 pushd /syncserver; gunicorn --bind 127.0.0.1:5000 \
                             --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+                            --paste /syncserver/syncserver.ini \
                               syncserver.wsgi_app & popd
