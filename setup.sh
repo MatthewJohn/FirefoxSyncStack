@@ -187,7 +187,7 @@ npm install bluebird
 #grunt server:dist
 cat > /fxa-content-server/server/config/production.json <<EOF
 {
-  "public_url": "https://content.${BASE_DOMAIN}",
+  "public_url": "https://${BASE_DOMAIN}",
   "oauth_client_id": "98e6508e88680e1a",
   "oauth_url": "https://oauth.${BASE_DOMAIN}",
   "profile_url": "https://profile.${BASE_DOMAIN}",
@@ -209,7 +209,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
     "enabled": true
   },
   "allowed_metrics_flow_cors_origins": ["https://mail.${BASE_DOMAIN}"],
-  "allowed_parent_origins": ["https://oauth.${BASE_DOMAIN}"],
+  "allowed_parent_origins": ["https://${BASE_DOMAIN}"],
   "static_directory": "dist",
   "page_template_subdirectory": "dist",
   "csp": {
@@ -464,7 +464,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
     "useRedis": true
   },
   "authServer": {
-    "url":"https://auth.${BASE_DOMAIN}:9000/v1"
+    "url":"https://api.${BASE_DOMAIN}/v1"
   },
   "mysql":{
      "createSchema":true,
@@ -508,7 +508,53 @@ cd /syncserver
 #pip install --upgrade pip
 pip install --upgrade --no-cache-dir -r requirements.txt
 # pip install --upgrade --no-cache-dir -r dev-requirements.txt
+export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
+cat > /syncserver/syncserver.ini <<EOF
+[server:main]
+use = egg:gunicorn
+host = 127.0.0.1
+port = 5000
+workers = 1
+timeout = 30
 
+[app:main]
+use = egg:syncserver
+
+[syncserver]
+# This must be edited to point to the public URL of your server,
+# i.e. the URL as seen by Firefox.
+public_url = https://sync.${BASE_DOMAIN}/
+
+# By default, syncserver will accept identity assertions issued by
+# any BrowserID issuer.  The below restricts it to accept assertions
+# from just the production Firefox Account servers.  If you are hosting
+# your own account server, put its public URL here instead.
+identity_provider = https://accounts.${BASE_DOMAIN}/
+
+# This defines the database in which to store all server data.
+#sqluri = sqlite:////tmp/syncserver.db
+
+# This is a secret key used for signing authentication tokens.
+# It should be long and randomly-generated.
+# The following command will give a suitable value on *nix systems:
+#
+#    head -c 20 /dev/urandom | sha1sum
+#
+# If not specified then the server will generate a temporary one at startup.
+secret = ${SYNCSERVER_SECRET}
+
+# Set this to "false" to disable new-user signups on the server.
+# Only requests by existing accounts will be honoured.
+allow_new_users = true
+
+# Set this to "true" to work around a mismatch between public_url and
+# the application URL as seen by python, which can happen in certain reverse-
+# proxy hosting setups.  It will overwrite the WSGI environ dict with the
+# details from public_url.  This could have security implications if e.g.
+# you tell the app that it's on HTTPS but it's really on HTTP, so it should
+# only be used as a last resort and after careful checking of server config.
+force_wsgi_environ = true
+EOF
 
 
 docker cp  /fxa-auth-server/config/index.js
@@ -527,16 +573,16 @@ redis-server &
 
 # Ports
 # 8002 - pushbox
-# 8080 - authdb
-# 3030 - account content
-# 3080 - account redirect
-# 1111 - profile
-# 1112 - profile static - TBC
-# 8001 - email
-# 5000 - syncserver
+# 8080 - authdb (api.${BASE_DOMAIN})
+# 3030 - account content (${BASE_DOMAIN})
+# 3080 - account redirect (?)
+# 1111 - profile (profile.${BASE_DOMAIN})
+# 1112 - profile static - TBC (??)
+# 8001 - email (? None?)
+# 5000 - syncserver (sync.${BASE_DOMAIN})
 
 # domains
-# auth.${BASE_DOMAIN} - fxa-auth-server
+# accounts.${BASE_DOMAIN} - fxa-auth-server
 # profile.${BASE_DOMAIN}
 # static.profile.${BASE_DOMAIN}
 # oath.${BASE_DOMAIN}
@@ -550,9 +596,6 @@ pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-auth-server; NODE_ENV=prod node ./node_modules/fxa-customs-server/bin/customs_server.js & NODE_ENV=prod scripts/start-server.sh & popd
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
-pushd /syncserver; SYNCSERVER_PUBLIC_URL=https://sync.${BASE_DOMAIN}:5000 SYNCSERVER_SECRET=5up3rS3kr1t \
-                   SYNCSERVER_SQLURI=sqlite:////tmp/syncserver.db SYNCSERVER_BATCH_UPLOAD_ENABLED=true \
-                   SYNCSERVER_FORCE_WSGI_ENVIRON=false \
-                     gunicorn --bind 127.0.0.1:5000 \
-                              --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+pushd /syncserver; gunicorn --bind 127.0.0.1:5000 \
+                            --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
                               syncserver.wsgi_app & popd
