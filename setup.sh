@@ -16,7 +16,7 @@ apt install curl nodejs npm git postfix \
             memcached redis mysql-server \
             graphicsmagick libssl-dev pkg-config \
             mysql-client libmysqlclient-dev nginx \
-            libffi-dev g++ python2.7 python-pip \
+            libffi-dev g++ python2.7 python-pip python-virtualenv \
             --assume-yes
 # Not installed for syncserver
 # libstdc++
@@ -504,7 +504,8 @@ EOF
 cd /
 git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
-pip install --upgrade pip
+# Upgrade of pip breaks it on ubuntu-18.04 (apparently)
+#pip install --upgrade pip
 pip install --upgrade --no-cache-dir -r requirements.txt
 # pip install --upgrade --no-cache-dir -r dev-requirements.txt
 
@@ -532,6 +533,7 @@ redis-server &
 # 1111 - profile
 # 1112 - profile static - TBC
 # 8001 - email
+# 5000 - syncserver
 
 # domains
 # auth.${BASE_DOMAIN} - fxa-auth-server
@@ -540,6 +542,7 @@ redis-server &
 # oath.${BASE_DOMAIN}
 # mail.${BASE_DOMAIN}
 # content.${BASE_DOMAIN}
+# sync.${BASE_DOMAIN}
 
 pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=8002 ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
@@ -547,3 +550,9 @@ pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-auth-server; NODE_ENV=prod node ./node_modules/fxa-customs-server/bin/customs_server.js & NODE_ENV=prod scripts/start-server.sh & popd
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
+pushd /syncserver; SYNCSERVER_PUBLIC_URL=https://sync.${BASE_DOMAIN}:5000 SYNCSERVER_SECRET=5up3rS3kr1t \
+                   SYNCSERVER_SQLURI=sqlite:////tmp/syncserver.db SYNCSERVER_BATCH_UPLOAD_ENABLED=true \
+                   SYNCSERVER_FORCE_WSGI_ENVIRON=false \
+                     gunicorn --bind 127.0.0.1:5000 \
+                              --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+                              syncserver.wsgi_app & popd
