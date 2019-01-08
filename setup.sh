@@ -192,6 +192,19 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "oauth_url": "https://oauth.${BASE_DOMAIN}",
   "profile_url": "https://profile.${BASE_DOMAIN}",
   "profile_images_url": "https://static.profile.${BASE_DOMAIN}",
+  "marketing_email": {
+    "api_url": "http://127.0.0.1:1114",
+    "preferences_url": ""
+  },
+  "fxaccount_url": "https://api.${BASE_DOMAIN}",
+  "geodb": {
+    "enabled": false
+  },
+  basket: {
+    api_key: 'changeme',
+    api_url: 'http://127.0.0.1:10140',
+    proxy_url: 'http://127.0.0.1:1114'
+  },
   "client_sessions": {
     "cookie_name": "session",
     "secret": "changeme",
@@ -475,7 +488,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "port":"3306"
   },
   "oauth":{
-     "url":"https://oauth.${BASE_DOMAIN}/v1"
+     "url":"https://oauth.${BASE_DOMAIN}"
   },
   "publicUrl":"https://profile.${BASE_DOMAIN}",
   "server":{
