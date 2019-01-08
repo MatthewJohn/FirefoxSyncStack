@@ -3,18 +3,10 @@
 # https://github.com/mozilla-services/loop-server.git
 # https://github.com/mozilla/fxa-local-dev
 
-export MYSQL_USER=root
-export MYSQL_PASSWORD=
-export BASE_DOMAIN=ff.dockstudios.co.uk
-export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
-export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
-
-
-
 apt-get update
 apt install curl nodejs npm git postfix \
             memcached redis mysql-server \
-            graphicsmagick libssl-dev pkg-config \
+            graphicsmagick libssl1.0-dev pkg-config \
             mysql-client libmysqlclient-dev nginx \
             libffi-dev g++ python2.7 python-pip python-virtualenv \
             --assume-yes
@@ -24,12 +16,19 @@ apt install curl nodejs npm git postfix \
 npm install -g grunt-cli grunt
 
 # Install Rust
-curl https://sh.rustup.rs -sSf | sh -y
+sh <(curl https://sh.rustup.rs -sSf) -y
 export PATH=$PATH:$HOME/.cargo/bin
 source $HOME/.cargo/env
 # Build failure with 'unresolved import `core::ffi::c_void`'
 #rustup default nightly
 #rustup update && cargo update
+
+export MYSQL_USER=root
+export MYSQL_PASSWORD=
+export BASE_DOMAIN=ff.dockstudios.co.uk
+export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
+export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
+
 
 cd /
 git clone https://github.com/mozilla-services/pushbox
@@ -50,7 +49,7 @@ server_token="changeme"
 json = 1048576
 EOF
 cargo run || true
-sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
+#sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
 
 
 
@@ -180,7 +179,7 @@ git clone https://github.com/mozilla/fxa-content-server
 cd /fxa-content-server
 npm install npm@6 webpack@4.16.1 --global
 /usr/local/bin/npm install --production
-npm install bluebird
+#npm install bluebird
 ./scripts/download_l10n.sh
 /usr/local/bin/npm run build-production
 #grunt install
@@ -205,7 +204,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
     api_url: 'http://127.0.0.1:10140',
     proxy_url: 'http://127.0.0.1:1114'
   },
-  "sync_tokenserver_url": "https://token.${BASE_DOMAIN}",
+  "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}",
   "client_sessions": {
     "cookie_name": "session",
     "secret": "changeme",
@@ -547,6 +546,7 @@ identity_provider = https://accounts.${BASE_DOMAIN}/
 
 # This defines the database in which to store all server data.
 #sqluri = sqlite:////tmp/syncserver.db
+sqluri = pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/sync
 
 # This is a secret key used for signing authentication tokens.
 # It should be long and randomly-generated.
@@ -593,7 +593,7 @@ redis-server &
 # 1111 - profile (profile.${BASE_DOMAIN})
 # 1112 - profile static - TBC (??)
 # 8001 - email (? None?)
-# 5000 - syncserver (sync.${BASE_DOMAIN})
+# 5000 - syncserver (sync.${BASE_DOMAIN}) (syncstorage and tokenserver)
 
 # domains
 # accounts.${BASE_DOMAIN} - fxa-auth-server
