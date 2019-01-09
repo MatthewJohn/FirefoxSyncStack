@@ -12,6 +12,7 @@ apt install curl nodejs npm git postfix \
             graphicsmagick libssl1.0-dev pkg-config \
             mysql-client libmysqlclient-dev nginx \
             libffi-dev g++ python2.7 python-pip python-virtualenv \
+            build-essential libmariadbclient-dev mysql-client libxslt1.1 libxml2 libxml2-dev libxslt1-dev \
             --assume-yes
 # Not installed for syncserver
 # libstdc++
@@ -26,11 +27,115 @@ source $HOME/.cargo/env
 #rustup default nightly
 #rustup update && cargo update
 
+cat > /settings_include.sh <<EOF
 export MYSQL_USER=root
 export MYSQL_PASSWORD=
 export BASE_DOMAIN=ff.dockstudios.co.uk
 export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
 export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
+export BASKET_SECRET_KEY=$(openssl rand -base64 32)
+export ENABLE_GEODB="false"
+# CONTENT SERVER
+export CONTENT_INTERNAL_HOST=127.0.0.1
+export CONTENT_INTERNAL_PORT=3030
+export CONTENT_INTERNAL_URL=http://${CONTENT_INTERNAL_HOST}:${CONTENT_INTERNAL_PORT}
+export CONTENT_EXTERNAL_URL=https://${BASE_DOMAIN}
+# AUTH (API) SERVER
+export AUTH_INTERNAL_HOST=127.0.0.1
+export AUTH_INTERNAL_PORT=9000
+export AUTH_INTERNAL_URL=http://${AUTH_INTERNAL_HOST}:${AUTH_INTERNAL_PORT}
+export AUTH_EXTERNAL_URL=https://api.${BASE_DOMAIN}
+
+export OAUTH_INTERNAL_HOST=127.0.0.1
+export OAUTH_INTERNAL_PORT=
+export OAUTH_INTERNAL_URL=http://${OAUTH_INTERNAL_HOST}:${OAUTH_INTERNAL_PORT}
+export OAUTH_EXTERNAL_DOMAIN=oauth.${BASE_DOMAIN}
+export OAUTH_EXTERNAL_URL=https://${OAUTH_EXTERNAL_DOMAIN}
+
+
+export PROFILE_INTERNAL_HOST=127.0.0.1
+export PROFILE_INTERNAL_PORT=1111
+export PROFILE_EXTERNAL_URL=https://profile.${BASE_DOMAIN}
+export STATIC_PROFILE_EXTERNAL_URL=https://static.profile.${BASE_DOMAIN}
+
+export SYNC_INTERNAL_HOST=127.0.0.1
+export SYNC_INTERNAL_PORT=5000
+export SYNC_INTERNAL_URL=http://${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT}
+export SYNC_EXTERNAL_URL=https://sync.${BASE_DOMAIN}
+
+export AUTH_DB_INTERNAL_HOST=127.0.0.1
+export AUTH_DB_INTERNAL_PORT=8000
+
+export PUSHBOX_INTERNAL_HOST=127.0.0.1
+export PUSHBOX_INTERNAL_PORT=8002
+export PUSHBOX_INTERNAL_URL=http://${PUSHBOX_INTERNAL_HOST}:${PUSHBOX_INTERNAL_PORT}/
+
+export BASKET_INTERNAL_HOST=127.0.0.1
+export BASKET_INTERNAL_PORT=10140
+export BASKET_INTERNAL_URL=http://${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}
+export BASKET_EXTERNAL_URL=https://basket.${BASE_DOMAIN}
+export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
+export BASKET_PROXY_INTERNAL_PORT=1114
+export BASKET_PROXY_INTERNAL_URL=http://${BASKET_PROXY_INTERNAL_HOST}:${BASKET_PROXY_INTERNAL_PORT}
+export BASKET_PROXY_EXTERNAL_URL=https://basket-proxy.${BASE_DOMAIN}
+EOF
+. /settings_include.sh
+
+
+
+
+
+service mysql start
+echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
+echo 'CREATE DATABASE pushbox' | mysql
+echo 'CREATE DATABASE sync' | mysql
+service memcached start
+redis-server &
+service postfix start
+
+
+
+cd /
+git clone https://github.com/mozmeao/basket
+cd /basket
+pip install --require-hashes --no-cache-dir -r requirements/prod.txt
+DEBUG=False SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=localhost, DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket \
+    ./manage.py collectstatic --noinput
+SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py migrate
+export BASKET_API_KEY=$(echo 'from basket.news.models import APIUser; ff = APIUser(name="Firefox"); ff.save(); print ff.api_key'  | SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py shell)
+echo "export BASKET_API_KEY=${BASKET_API_KEY}" >> /settings_include.sh
+. /settings_include.sh
+
+cd /
+git clone https://github.com/mozilla/fxa-basket-proxy
+cd /fxa-basket-proxy
+cat > /fxa-basket-proxy/config/production.json <<EOF
+{
+  "env": "prod",
+  "basket": {
+    "apiUrl": "${BASKET_EXTERNAL_URL}/news"
+  },
+  "log": {
+    "format": "heka"
+  }
+}
+EOF
+npm install
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 cd /
@@ -42,7 +147,7 @@ cat > /pushbox/Rocket.toml <<EOF
 ## Database DSN URL.
 database_url="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox"
 ## used by FxA OAuth token authorization.
-fxa_host="oauth.${BASE_DOMAIN}"
+fxa_host="${OAUTH_EXTERNAL_DOMAIN}"
 ## set "dryrun" to "true" to skip ANY authorization checks.
 #dryrun=false
 ## used by the FXA Server key authorization
@@ -120,7 +225,7 @@ bash scripts/download_l10n.sh
 cat > /fxa-auth-server/config/prod.json <<EOF
 {
   "contentServer": {
-    "url": "https://${BASE_DOMAIN}"
+    "url": "${CONTENT_EXTERNAL_URL}"
   },
   "customsUrl": "none",
   "lockoutEnabled": true,
@@ -144,7 +249,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     }
   },
   "geodb": {
-    "enabled": false
+    "enabled": ${ENABLE_GEODB}
   },
   "lastAccessTimeUpdates": {
     "enabled": true,
@@ -152,7 +257,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   },
   "pushbox": {
     "enabled": true,
-    "url": "http://localhost:8002/",
+    "url": "${PUSHBOX_INTERNAL_URL}",
     "key": "${ROCKET_TOKEN}",
     "maxTTL": "28 days"
   },
@@ -162,7 +267,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   },
   "oauth": {
      "clientIds": {},
-     "url": "https://oauth.${BASE_DOMAIN}",
+     "url": "${OAUTH_EXTERNAL_URL}",
      "secretKey": "changeme",
      "keepAlive": false
    }
@@ -195,23 +300,23 @@ rm /fxa-content-server/server/config/local.json
 rm /fxa-content-server/server/config/fxaci.json
 cat > /fxa-content-server/server/config/production.json <<EOF
 {
-  "public_url": "https://${BASE_DOMAIN}",
+  "public_url": "${CONTENT_EXTERNAL_URL}",
   "oauth_client_id": "98e6508e88680e1a",
-  "oauth_url": "https://oauth.${BASE_DOMAIN}",
-  "profile_url": "https://profile.${BASE_DOMAIN}",
-  "profile_images_url": "https://static.profile.${BASE_DOMAIN}",
+  "oauth_url": "${OAUTH_EXTERNAL_URL}",
+  "profile_url": "${PROFILE_EXTERNAL_URL}",
+  "profile_images_url": "${STATIC_PROFILE_EXTERNAL_URL}",
   "marketing_email": {
     "api_url": "http://127.0.0.1:1114",
     "preferences_url": "http://localhost:1115"
   },
-  "fxaccount_url": "https://api.${BASE_DOMAIN}",
+  "fxaccount_url": "${AUTH_EXTERNAL_URL}",
   "geodb": {
-    "enabled": false
+    "enabled": ${ENABLE_GEODB}
   },
   basket: {
-    api_key: 'changeme',
-    api_url: 'http://127.0.0.1:10140',
-    proxy_url: 'http://127.0.0.1:1114'
+    api_key: '${BASKET_API_KEY}',
+    api_url: '${BASKET_INTERNAL_URL}',
+    proxy_url: '${BASKET_PROXY_INTERNAL_URL}'
   },
   "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}",
   "client_sessions": {
@@ -497,12 +602,12 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "port":"3306"
   },
   "oauth":{
-     "url":"https://oauth.${BASE_DOMAIN}"
+     "url":"${OAUTH_EXTERNAL_URL}"
   },
-  "publicUrl":"https://profile.${BASE_DOMAIN}",
+  "publicUrl":"${PROFILE_EXTERNAL_URL}",
   "server":{
-     "host":"127.0.0.1",
-     "port":1111
+     "host":"${PROFILE_INTERNAL_HOST}",
+     "port":${PROFILE_INTERNAL_PORT}
   },
   "worker":{
      "host":"127.0.0.1",
@@ -545,8 +650,8 @@ export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
 cat > /syncserver/syncserver.ini <<EOF
 [server:main]
 use = egg:gunicorn
-host = 127.0.0.1
-port = 5000
+host = ${SYNC_INTERNAL_HOST}
+port = ${SYNC_INTERNAL_PORT}
 workers = 2
 timeout = 60
 
@@ -556,14 +661,14 @@ use = egg:syncserver
 [syncserver]
 # This must be edited to point to the public URL of your server,
 # i.e. the URL as seen by Firefox.
-public_url = https://sync.${BASE_DOMAIN}/
+public_url = ${SYNC_EXTERNAL_URL}/
 
 # By default, syncserver will accept identity assertions issued by
 # any BrowserID issuer.  The below restricts it to accept assertions
 # from just the production Firefox Account servers.  If you are hosting
 # your own account server, put its public URL here instead.
-#identity_provider = https://${BASE_DOMAIN}/
-identity_provider = http://127.0.0.1:3030/
+#identity_provider = ${CONTENT_EXTERNAL_URL}/
+identity_provider = ${CONTENT_INTERNAL_URL}/
 
 # This defines the database in which to store all server data.
 #sqluri = sqlite:////tmp/syncserver.db
@@ -592,6 +697,10 @@ force_wsgi_environ = true
 
 forwarded_allow_ips = *
 EOF
+
+
+
+
 
 
 cat > /etc/nginx/sites-enabled/default <<EOF
@@ -655,7 +764,25 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    proxy_pass http://127.0.0.1:9000/;
+    proxy_pass ${AUTH_INTERNAL_URL}/;
+   }
+}
+server {
+  listen 443 ssl;
+  server_name basket.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${BASKET_INTERNAL_URL}/;
    }
 }
 server {
@@ -673,7 +800,7 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    proxy_pass http://127.0.0.1:3030/;
+    proxy_pass ${CONTENT_INTERNAL_URL}/;
    }
 }
 EOF
@@ -684,15 +811,6 @@ docker cp /fxa-auth-db-mysql/config/config.js
 
 
 volumes /var/lib/mysql
-
-
-service mysql start
-echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
-echo 'CREATE DATABASE pushbox' | mysql
-echo 'CREATE DATABASE sync' | mysql
-service memcached start
-redis-server &
-service postfix start
 
 # Ports
 # 8002 - pushbox
@@ -713,14 +831,26 @@ service postfix start
 # content.${BASE_DOMAIN}
 # sync.${BASE_DOMAIN}
 
-pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=8002 ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
+cat > /start_all.sh <<EOF
+pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
 pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh & popd
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
-pushd /syncserver; /syncserver/local/bin/gunicorn --bind 127.0.0.1:5000 \
+pushd /basket; SECRET_KEY=${BASKET_SECRET_KEY} gunicorn basket.wsgi --bind "${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}" \
+                          --workers "${WSGI_NUM_WORKERS:-8}" \
+                          --worker-class "${WSGI_WORKER_CLASS:-meinheld.gmeinheld.MeinheldWorker}" \
+                          --log-level "${WSGI_LOG_LEVEL:-info}" \
+                          --error-logfile - \
+                          --access-logfile - & popd
+
+pushd /fxa-basket-proxy; NODE_ENV=production node bin/basket-proxy-server.js & popd
+
+
+pushd /syncserver; /syncserver/local/bin/gunicorn --bind ${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT} \
                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
                                                   --paste /syncserver/syncserver.ini \
                                                     syncserver.wsgi_app & popd
+EOF
