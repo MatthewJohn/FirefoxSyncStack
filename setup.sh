@@ -519,8 +519,9 @@ git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
 # Upgrade of pip breaks it on ubuntu-18.04 (apparently)
 #pip install --upgrade pip
-pip install --upgrade --no-cache-dir -r requirements.txt
+#pip install --upgrade --no-cache-dir -r requirements.txt
 # pip install --upgrade --no-cache-dir -r dev-requirements.txt
+make
 export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
 cat > /syncserver/syncserver.ini <<EOF
 [server:main]
