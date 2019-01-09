@@ -120,7 +120,7 @@ bash scripts/download_l10n.sh
 cat > /fxa-auth-server/config/prod.json <<EOF
 {
   "contentServer": {
-    "url": "http://127.0.0.1:3030"
+    "url": "https://${BASE_DOMAIN}"
   },
   "customsUrl": "none",
   "lockoutEnabled": true,
@@ -142,6 +142,9 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     "ipProfiling": {
       "allowedRecency": 0
     }
+  },
+  "geodb": {
+    "enabled": false
   },
   "lastAccessTimeUpdates": {
     "enabled": true,
@@ -188,6 +191,8 @@ npm install npm@6 webpack@4.16.1 --global
 /usr/local/bin/npm run build-production
 #grunt install
 #grunt server:dist
+rm /fxa-content-server/server/config/local.json
+rm /fxa-content-server/server/config/fxaci.json
 cat > /fxa-content-server/server/config/production.json <<EOF
 {
   "public_url": "https://${BASE_DOMAIN}",
@@ -249,7 +254,7 @@ cd /
 git clone https://github.com/mozilla/fxa-auth-db-mysql
 cd /fxa-auth-db-mysql
 npm install
-cat > /fxa-auth-db-mysql/config/index.js <<EOF
+cat > /fxa-auth-db-mysql/config/config.js <<EOF
 
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -519,6 +524,15 @@ EOF
 
 
 cd /
+git clone https://github.com/mozilla/fxa-customs-server
+cd /fxa-customs-server
+npm install
+
+
+
+
+
+cd /
 git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
 # Upgrade of pip breaks it on ubuntu-18.04 (apparently)
@@ -526,14 +540,15 @@ cd /syncserver
 #pip install --upgrade --no-cache-dir -r requirements.txt
 # pip install --upgrade --no-cache-dir -r dev-requirements.txt
 make
+local/bin/pip install gunicorn
 export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
 cat > /syncserver/syncserver.ini <<EOF
 [server:main]
 use = egg:gunicorn
 host = 127.0.0.1
 port = 5000
-workers = 1
-timeout = 30
+workers = 2
+timeout = 60
 
 [app:main]
 use = egg:syncserver
@@ -547,7 +562,8 @@ public_url = https://sync.${BASE_DOMAIN}/
 # any BrowserID issuer.  The below restricts it to accept assertions
 # from just the production Firefox Account servers.  If you are hosting
 # your own account server, put its public URL here instead.
-identity_provider = https://${BASE_DOMAIN}/
+#identity_provider = https://${BASE_DOMAIN}/
+identity_provider = http://127.0.0.1:3030/
 
 # This defines the database in which to store all server data.
 #sqluri = sqlite:////tmp/syncserver.db
@@ -573,6 +589,8 @@ allow_new_users = true
 # you tell the app that it's on HTTPS but it's really on HTTP, so it should
 # only be used as a last resort and after careful checking of server config.
 force_wsgi_environ = true
+
+forwarded_allow_ips = *
 EOF
 
 
@@ -605,6 +623,8 @@ server {
 server {
   listen 443 ssl;
   server_name sync.${BASE_DOMAIN};
+
+  large_client_header_buffers 4 8k;
 
   ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
   ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
@@ -669,6 +689,7 @@ volumes /var/lib/mysql
 service mysql start
 echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
 echo 'CREATE DATABASE pushbox' | mysql
+echo 'CREATE DATABASE sync' | mysql
 service memcached start
 redis-server &
 service postfix start
@@ -695,10 +716,11 @@ service postfix start
 pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=8002 ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
-pushd /fxa-auth-server; NODE_ENV=prod node ./node_modules/fxa-customs-server/bin/customs_server.js & NODE_ENV=prod scripts/start-server.sh & popd
+pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
+pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh & popd
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
-pushd /syncserver; gunicorn --bind 127.0.0.1:5000 \
-                            --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
-                            --paste /syncserver/syncserver.ini \
-                              syncserver.wsgi_app & popd
+pushd /syncserver; /syncserver/local/bin/gunicorn --bind 127.0.0.1:5000 \
+                                                  --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+                                                  --paste /syncserver/syncserver.ini \
+                                                    syncserver.wsgi_app & popd
