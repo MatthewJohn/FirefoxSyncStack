@@ -35,6 +35,10 @@ export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
 export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
 export BASKET_SECRET_KEY=$(openssl rand -base64 32)
 export ENABLE_GEODB="false"
+export FLOW_HMAC_KEY=$(openssl rand -base64 32)
+export EMAIL_HMAC_KEY=$(openssl rand -base64 32)
+export OAUTH_SECRET=$(openssl rand -base64 32)
+
 # CONTENT SERVER
 export CONTENT_INTERNAL_HOST=127.0.0.1
 export CONTENT_INTERNAL_PORT=3030
@@ -47,7 +51,7 @@ export AUTH_INTERNAL_URL=http://${AUTH_INTERNAL_HOST}:${AUTH_INTERNAL_PORT}
 export AUTH_EXTERNAL_URL=https://api.${BASE_DOMAIN}
 
 export OAUTH_INTERNAL_HOST=127.0.0.1
-export OAUTH_INTERNAL_PORT=
+export OAUTH_INTERNAL_PORT=9010
 export OAUTH_INTERNAL_URL=http://${OAUTH_INTERNAL_HOST}:${OAUTH_INTERNAL_PORT}
 export OAUTH_EXTERNAL_DOMAIN=oauth.${BASE_DOMAIN}
 export OAUTH_EXTERNAL_URL=https://${OAUTH_EXTERNAL_DOMAIN}
@@ -113,8 +117,13 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
 {
   "env": "prod",
   "basket": {
-    "apiUrl": "${BASKET_EXTERNAL_URL}/news"
+    "api_url": "${BASKET_INTERNAL_URL}/news",
+    "proxy_url": "${BASKET_EXTERNAL_URL}",
+    "api_key": "${BASKET_API_KEY}",
+    "source_url": "${CONTENT_EXTERNAL_URL}"
   },
+  "fxaccount_url": "${AUTH_INTERNAL_URL}",
+  "oauth_url": "${OAUTH_INTERNAL_URL}",
   "log": {
     "format": "heka"
   }
@@ -187,7 +196,7 @@ cat > /fxa-email-service/config/default.json <<EOF
       { "period": "5 minutes", "limit": 0 }
     ]
   },
-  "hmackey": "changeme",
+  "hmackey": "${EMAIL_HMAC_KEY}",
   "host": "127.0.0.1",
   "log": {
     "level": "off",
@@ -263,14 +272,149 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   },
   "metrics": {
     "flow_id_expiry": 7200000,
-    "flow_id_key": "wibble"
+    "flow_id_key": "${FLOW_HMAC_KEY}"
   },
   "oauth": {
      "clientIds": {},
      "url": "${OAUTH_EXTERNAL_URL}",
-     "secretKey": "changeme",
+     "secretKey": "${OAUTH_SECRET}",
      "keepAlive": false
    }
+}
+EOF
+cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
+{
+  "clientManagement": {
+    "enabled": true
+  },
+  "events": {},
+  "clients": [
+    {
+      "id": "dcdb5ae7add825d2",
+      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
+      "hashedSecretPrevious": "0726282857047586fb4edc335b5492ef1e4a0d95d3f1114627bb89b4e57cf6e1",
+      "name": "Mocha",
+      "imageUri": "https://example.domain/logo",
+      "redirectUri": "https://example.domain/return?foo=bar",
+      "trusted": true,
+      "canGrant": false
+    },
+    {
+      "id": "98e6508e88680e1a",
+      "hashedSecret": "0000000000000000000000000000000000000000000000000000000000000000",
+      "name": "Admin",
+      "imageUri": "https://example2.domain/logo",
+      "redirectUri": "https://example2.domain/redirect",
+      "trusted": true,
+      "canGrant": true,
+      "publicClient": true
+    },
+    {
+      "id": "98e6508e88680e1b",
+      "hashedSecret": "ba5cfb370fd782f7eae1807443ab816288c101a54c0d80a09063273c86d3c435",
+      "name": "URN",
+      "imageUri": "https://example2.domain/logo",
+      "redirectUri": "urn:ietf:wg:oauth:2.0:fx:webchannel",
+      "trusted": true,
+      "canGrant": false
+    },
+    {
+      "name": "NoRedirectUri",
+      "id": "ea3ca969f8c6bb0d",
+      "hashedSecret": "d962cdf34a33ab26f7a6b900d0e1028f182d8e4811cb9b5ac4f20275525c8f54",
+      "imageUri": "",
+      "redirectUri": "",
+      "trusted": true,
+      "canGrant": false
+    },
+    {
+      "name": "Untrusted",
+      "id": "ea3ca969f8c6bb0e",
+      "hashedSecret": "ec62e3281e3b56e702fe7e82ca7b1fa59d6c2a6766d6d28cccbf8bfa8d5fc8a8",
+      "imageUri": "",
+      "redirectUri": "https://example.domain/return?foo=bar",
+      "trusted": false,
+      "canGrant": false
+    },
+    {
+      "id": "38a6b9b3a65a1871",
+      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
+      "name": "Public Client PKCE",
+      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
+      "redirectUri": "https://example.domain/return?foo=bar",
+      "trusted": true,
+      "allowedScopes": "kv",
+      "canGrant": false,
+      "publicClient": true
+    },
+    {
+      "id": "38a6b9b3a65a1872",
+      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
+      "name": "Public Client PKCE with no allowedScoeps",
+      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
+      "redirectUri": "https://example.domain/return?foo=bar",
+      "trusted": true,
+      "canGrant": false,
+      "publicClient": true
+    },
+    {
+      "id": "aaa6b9b3a65a1871",
+      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
+      "name": "Scoped Key Client",
+      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
+      "redirectUri": "https://example.domain/return?foo=bar",
+      "trusted": true,
+      "allowedScopes": "https://identity.mozilla.com/apps/sample-scope-can-scope-key https://identity.mozilla.com/apps/sample-scope kv https://identity.mozilla.com/apps/another-can-scope-key",
+      "canGrant": false,
+      "publicClient": false
+    }
+  ],
+  "logging": {
+    "level": "error",
+    "fmt": "pretty"
+  },
+  "openid": {
+    "keyFile": "../config/key.json",
+    "oldKeyFile": "../config/oldKey.json",
+    "key": {},
+    "oldKey": {},
+    "issuer": "${CONTENT_EXTERNAL_URL}"
+  },
+  "allowHttpRedirects": true,
+  "authServerSecrets": ["${OAUTH_SECRET}"],
+  "publicUrl": "${OAUTH_EXTERNAL_URL}",
+  "server": {
+    "host": "${OAUTH_INTERNAL_HOST}",
+    "port": "${OAUTH_INTERNAL_PORT}"
+  },
+  "db": {
+    "driver": "mysql"
+  },
+  "contentUrl": "${CONTENT_EXTERNAL_URL}/oauth",
+  "admin": {
+    "whitelist": ["@dockstudios.co.uk\$"]
+  },
+  "mysql": {
+    "createSchema": true,
+    "user": "${MYSQL_USER}",
+    "password": "${MYSQL_PASSWORD}",
+    "host": "localhost",
+    "database": "fxa_oauth"
+  },
+  "scopes": [
+    {
+      "scope": "https://identity.mozilla.com/apps/sample-scope",
+      "hasScopedKeys": false
+    },
+    {
+      "scope": "https://identity.mozilla.com/apps/sample-scope-can-scope-key",
+      "hasScopedKeys": true
+    },
+    {
+      "scope": "https://identity.mozilla.com/apps/another-can-scope-key",
+      "hasScopedKeys": true
+    }
+  ]
 }
 EOF
 NODE_ENV=prod node ./scripts/gen_keys.js
@@ -306,17 +450,18 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "profile_url": "${PROFILE_EXTERNAL_URL}",
   "profile_images_url": "${STATIC_PROFILE_EXTERNAL_URL}",
   "marketing_email": {
-    "api_url": "http://127.0.0.1:1114",
+    "api_url": "${BASKET_EXTERNAL_URL}",
     "preferences_url": "http://localhost:1115"
   },
+  "flow_id_key": "${FLOW_HMAC_KEY}",
   "fxaccount_url": "${AUTH_EXTERNAL_URL}",
   "geodb": {
     "enabled": ${ENABLE_GEODB}
   },
   basket: {
-    api_key: '${BASKET_API_KEY}',
-    api_url: '${BASKET_INTERNAL_URL}',
-    proxy_url: '${BASKET_PROXY_INTERNAL_URL}'
+    api_key: "${BASKET_API_KEY}",
+    api_url: "${BASKET_INTERNAL_URL}",
+    proxy_url: "${BASKET_EXTERNAL_URL}"
   },
   "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}",
   "client_sessions": {
@@ -782,7 +927,25 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    proxy_pass ${BASKET_INTERNAL_URL}/;
+    proxy_pass ${BASKET_PROXY_INTERNAL_URL}/;
+   }
+}
+server {
+  listen 443 ssl;
+  server_name oauth.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${OAUTH_INTERNAL_URL}/;
    }
 }
 server {
@@ -837,6 +1000,8 @@ pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TO
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
 pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh & popd
+pushd /fxa-auth-server/fxa-oauth-server; NODE_ENV=prod node bin/server.js & popd
+
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
 pushd /basket; SECRET_KEY=${BASKET_SECRET_KEY} gunicorn basket.wsgi --bind "${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}" \
