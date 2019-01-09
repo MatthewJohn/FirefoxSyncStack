@@ -113,10 +113,11 @@ cd /
 git clone git://github.com/mozilla/fxa-auth-server.git
 cd /fxa-auth-server
 npm install
+bash scripts/download_l10n.sh
 cat > /fxa-auth-server/config/prod.json <<EOF
 {
   "contentServer": {
-    "url": "https://content.${BASE_DOMAIN}"
+    "url": "http://127.0.0.1:3030"
   },
   "customsUrl": "none",
   "lockoutEnabled": true,
@@ -132,7 +133,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     "host": "127.0.0.1",
     "port": 25,
     "secure": false,
-    "redirectDomain": "auth.${BASE_DOMAIN}"
+    "redirectDomain": "api.${BASE_DOMAIN}"
   },
   "securityHistory": {
     "ipProfiling": {
@@ -149,15 +150,15 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     "key": "${ROCKET_TOKEN}",
     "maxTTL": "28 days"
   },
-  metrics: {
-    flow_id_expiry: 7200000,
-    flow_id_key: 'wibble'
+  "metrics": {
+    "flow_id_expiry": 7200000,
+    "flow_id_key": "wibble"
   },
-  oauth: {
-     clientIds: {},
-     url: 'https://oauth.${BASE_DOMAIN}',
-     secretKey: "changeme",
-     keepAlive: false
+  "oauth": {
+     "clientIds": {},
+     "url": "https://oauth.${BASE_DOMAIN}",
+     "secretKey": "changeme",
+     "keepAlive": false
    }
 }
 EOF
@@ -618,6 +619,24 @@ server {
 }
 server {
   listen 443 ssl;
+  server_name api.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass http://127.0.0.1:9000/;
+   }
+}
+server {
+  listen 443 ssl;
   server_name ${BASE_DOMAIN};
 
   ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
@@ -649,10 +668,11 @@ echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '';
 echo 'CREATE DATABASE pushbox' | mysql
 service memcached start
 redis-server &
+service postfix start
 
 # Ports
 # 8002 - pushbox
-# 8080 - authdb (api.${BASE_DOMAIN})
+# 8080 - auth server (api.${BASE_DOMAIN})
 # 3030 - account content (${BASE_DOMAIN})
 # 3080 - account redirect (?)
 # 1111 - profile (profile.${BASE_DOMAIN})
