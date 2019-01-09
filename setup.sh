@@ -3,6 +3,9 @@
 # https://github.com/mozilla-services/loop-server.git
 # https://github.com/mozilla/fxa-local-dev
 
+set -e
+set +x
+
 apt-get update
 apt install curl nodejs npm git postfix \
             memcached redis mysql-server \
