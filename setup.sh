@@ -13,6 +13,7 @@ apt install curl nodejs npm git postfix \
             mysql-client libmysqlclient-dev nginx \
             libffi-dev g++ python2.7 python-pip python-virtualenv \
             build-essential libmariadbclient-dev mysql-client libxslt1.1 libxml2 libxml2-dev libxslt1-dev \
+            wget openjdk-8-jre-headless \
             --assume-yes
 # Not installed for syncserver
 # libstdc++
@@ -82,8 +83,94 @@ export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
 export BASKET_PROXY_INTERNAL_PORT=1114
 export BASKET_PROXY_INTERNAL_URL=http://${BASKET_PROXY_INTERNAL_HOST}:${BASKET_PROXY_INTERNAL_PORT}
 export BASKET_PROXY_EXTERNAL_URL=https://basket-proxy.${BASE_DOMAIN}
+
+export SQS_HOSTNAME=127.0.0.1
+export SQS_PORT=9324
+export BASKET_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/basket
+export PUSHBOX_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/pushbox
+export PROFILE_UPDATES_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/profile-updates
+export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/account-events
 EOF
 . /settings_include.sh
+
+
+
+# Install local SQS
+cd /
+git clone https://github.com/adamw/elasticmq
+cd /elasticmq
+wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
+cat > custom.conf <<EOF
+include classpath("application.conf")
+
+// What is the outside visible address of this ElasticMQ node
+// Used to create the queue URL (may be different from bind address!)
+node-address {
+    protocol = http
+    host = "127.0.0.1"
+    port = 9324
+    context-path = ""
+}
+
+rest-sqs {
+    enabled = true
+    bind-port = 9324
+    bind-hostname = "127.0.0.1"
+    // Possible values: relaxed, strict
+    sqs-limits = relaxed
+}
+
+// Should the node-address be generated from the bind port/hostname
+// Set this to true e.g. when assigning port automatically by using port 0.
+generate-node-address = false
+
+queues {
+    // See next section
+    basket {
+        defaultVisibilityTimeout = 10 seconds
+        delay = 0 seconds
+        receiveMessageWait = 0 seconds
+        deadLettersQueue {
+            name = "queue1-dead-letters"
+            maxReceiveCount = 3 // from 1 to 1000
+        }
+        fifo = false
+        contentBasedDeduplication = false
+        //copyTo = "audit-queue-name"
+        //moveTo = "redirect-queue-name"
+        //tags {
+        //    tag1 = "tagged1"
+        //    tag2 = "tagged2"
+        //}
+    }
+    pushbox {
+        defaultVisibilityTimeout = 10 seconds
+        delay = 0 seconds
+        receiveMessageWait = 0 seconds
+        fifo = false
+        contentBasedDeduplication = false
+    }
+    profile-updates {
+        defaultVisibilityTimeout = 10 seconds
+        delay = 0 seconds
+        receiveMessageWait = 0 seconds
+        fifo = false
+        contentBasedDeduplication = false
+    }
+    account-events {
+        defaultVisibilityTimeout = 10 seconds
+        delay = 0 seconds
+        receiveMessageWait = 0 seconds
+        fifo = false
+        contentBasedDeduplication = false
+    }
+    queue1-dead-letters { }
+    audit-queue-name { }
+    redirect-queue-name { }
+}
+
+EOF
+
 
 
 
@@ -126,6 +213,9 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
   "oauth_url": "${OAUTH_INTERNAL_URL}",
   "log": {
     "format": "heka"
+  },
+  "sqs": {
+    "queue_url": "${BASKET_SQS_QUEUE_URL}"
   }
 }
 EOF
@@ -160,7 +250,8 @@ fxa_host="${OAUTH_EXTERNAL_DOMAIN}"
 ## set "dryrun" to "true" to skip ANY authorization checks.
 #dryrun=false
 ## used by the FXA Server key authorization
-server_token="changeme"
+server_token="${PUSHBOX_ROCKET_TOKEN}"
+sqs_url="${PUSHBOX_SQS_QUEUE_URL}""
 [global.limits]
 # Maximum accepted data size for JSON payloads.
 json = 1048576
@@ -279,7 +370,11 @@ cat > /fxa-auth-server/config/prod.json <<EOF
      "url": "${OAUTH_EXTERNAL_URL}",
      "secretKey": "${OAUTH_SECRET}",
      "keepAlive": false
-   }
+   },
+   "profileServerMessaging": {
+    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}"
+   },
+   "snsTopicArn": "disabled"
 }
 EOF
 cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
@@ -736,7 +831,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
     "useRedis": true
   },
   "authServer": {
-    "url":"https://api.${BASE_DOMAIN}/v1"
+    "url":"${AUTH_INTERNAL_URL}/v1"
   },
   "mysql":{
      "createSchema":true,
@@ -747,7 +842,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "port":"3306"
   },
   "oauth":{
-     "url":"${OAUTH_EXTERNAL_URL}"
+     "url":"${OAUTH_INTERNAL_URL}"
   },
   "publicUrl":"${PROFILE_EXTERNAL_URL}",
   "server":{
@@ -768,6 +863,12 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "useRedis":true,
      "expiresIn":3600000,
      "generateTimeout":11000
+  },
+  "events": {
+    "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}"
+  },
+  "authServerMessaging": {
+    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}"
   }
 }
 EOF
@@ -995,6 +1096,7 @@ volumes /var/lib/mysql
 # sync.${BASE_DOMAIN}
 
 cat > /start_all.sh <<EOF
+pushd /elasticmq; java -Dconfig.file=custom.conf -jar elasticmq-server-0.14.6.jar & popd
 pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
