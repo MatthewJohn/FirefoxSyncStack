@@ -82,7 +82,7 @@ export BASKET_EXTERNAL_URL=https://basket.${BASE_DOMAIN}
 export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
 export BASKET_PROXY_INTERNAL_PORT=1114
 export BASKET_PROXY_INTERNAL_URL=http://${BASKET_PROXY_INTERNAL_HOST}:${BASKET_PROXY_INTERNAL_PORT}
-export BASKET_PROXY_EXTERNAL_URL=https://basket-proxy.${BASE_DOMAIN}
+export BASKET_PROXY_EXTERNAL_URL=https://${BASE_DOMAIN}/basket
 
 export SQS_HOSTNAME=127.0.0.1
 export SQS_PORT=9324
@@ -107,15 +107,15 @@ include classpath("application.conf")
 // Used to create the queue URL (may be different from bind address!)
 node-address {
     protocol = http
-    host = "127.0.0.1"
-    port = 9324
+    host = "${SQS_HOSTNAME}"
+    port = ${SQS_PORT}
     context-path = ""
 }
 
 rest-sqs {
     enabled = true
-    bind-port = 9324
-    bind-hostname = "127.0.0.1"
+    bind-port = ${SQS_PORT}
+    bind-hostname = "${SQS_HOST}"
     // Possible values: relaxed, strict
     sqs-limits = relaxed
 }
@@ -1028,7 +1028,7 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    proxy_pass ${BASKET_PROXY_INTERNAL_URL}/;
+    proxy_pass ${BASKET_INTERNAL_URL}/;
    }
 }
 server {
@@ -1056,6 +1056,16 @@ server {
   ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
   ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
 
+  location /basket {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${BASKET_PROXY_INERNAL_URL}/;
+   }
   location / {
     proxy_set_header Host \$http_host;
     proxy_set_header X-Forwarded-Proto \$scheme;
