@@ -12,7 +12,7 @@ apt install curl nodejs npm git postfix \
             graphicsmagick libssl1.0-dev pkg-config \
             mysql-client libmysqlclient-dev nginx \
             libffi-dev g++ python2.7 python-pip python-virtualenv \
-            build-essential libmariadbclient-dev mysql-client libxslt1.1 libxml2 libxml2-dev libxslt1-dev \
+            build-essential libmysqlclient-dev libxslt1.1 libxml2 libxml2-dev libxslt1-dev \
             wget openjdk-8-jre-headless \
             --assume-yes
 # Not installed for syncserver
@@ -43,53 +43,57 @@ export OAUTH_SECRET=$(openssl rand -base64 32)
 # CONTENT SERVER
 export CONTENT_INTERNAL_HOST=127.0.0.1
 export CONTENT_INTERNAL_PORT=3030
-export CONTENT_INTERNAL_URL=http://${CONTENT_INTERNAL_HOST}:${CONTENT_INTERNAL_PORT}
-export CONTENT_EXTERNAL_URL=https://${BASE_DOMAIN}
+export CONTENT_INTERNAL_URL=http://\${CONTENT_INTERNAL_HOST}:\${CONTENT_INTERNAL_PORT}
+export CONTENT_EXTERNAL_URL=https://\${BASE_DOMAIN}
 # AUTH (API) SERVER
 export AUTH_INTERNAL_HOST=127.0.0.1
 export AUTH_INTERNAL_PORT=9000
-export AUTH_INTERNAL_URL=http://${AUTH_INTERNAL_HOST}:${AUTH_INTERNAL_PORT}
-export AUTH_EXTERNAL_URL=https://api.${BASE_DOMAIN}
+export AUTH_INTERNAL_URL=http://\${AUTH_INTERNAL_HOST}:\${AUTH_INTERNAL_PORT}
+export AUTH_EXTERNAL_URL=https://api.\${BASE_DOMAIN}
 
 export OAUTH_INTERNAL_HOST=127.0.0.1
 export OAUTH_INTERNAL_PORT=9010
-export OAUTH_INTERNAL_URL=http://${OAUTH_INTERNAL_HOST}:${OAUTH_INTERNAL_PORT}
-export OAUTH_EXTERNAL_DOMAIN=oauth.${BASE_DOMAIN}
-export OAUTH_EXTERNAL_URL=https://${OAUTH_EXTERNAL_DOMAIN}
+export OAUTH_INTERNAL_URL=http://\${OAUTH_INTERNAL_HOST}:\${OAUTH_INTERNAL_PORT}
+export OAUTH_EXTERNAL_DOMAIN=oauth.\${BASE_DOMAIN}
+export OAUTH_EXTERNAL_URL=https://\${OAUTH_EXTERNAL_DOMAIN}
 
 
 export PROFILE_INTERNAL_HOST=127.0.0.1
 export PROFILE_INTERNAL_PORT=1111
-export PROFILE_EXTERNAL_URL=https://profile.${BASE_DOMAIN}
-export STATIC_PROFILE_EXTERNAL_URL=https://static.profile.${BASE_DOMAIN}
+export PROFILE_EXTERNAL_URL=https://profile.\${BASE_DOMAIN}
+export STATIC_PROFILE_EXTERNAL_URL=https://static.profile.\${BASE_DOMAIN}
 
 export SYNC_INTERNAL_HOST=127.0.0.1
 export SYNC_INTERNAL_PORT=5000
-export SYNC_INTERNAL_URL=http://${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT}
-export SYNC_EXTERNAL_URL=https://sync.${BASE_DOMAIN}
+export SYNC_INTERNAL_URL=http://\${SYNC_INTERNAL_HOST}:\${SYNC_INTERNAL_PORT}
+export SYNC_EXTERNAL_URL=https://sync.\${BASE_DOMAIN}
 
 export AUTH_DB_INTERNAL_HOST=127.0.0.1
 export AUTH_DB_INTERNAL_PORT=8000
 
 export PUSHBOX_INTERNAL_HOST=127.0.0.1
 export PUSHBOX_INTERNAL_PORT=8002
-export PUSHBOX_INTERNAL_URL=http://${PUSHBOX_INTERNAL_HOST}:${PUSHBOX_INTERNAL_PORT}/
+export PUSHBOX_INTERNAL_URL=http://\${PUSHBOX_INTERNAL_HOST}:\${PUSHBOX_INTERNAL_PORT}/
+
+export CUSTOMS_INTERNAL_URL=http://127.0.0.1:7000
 
 export BASKET_INTERNAL_HOST=127.0.0.1
 export BASKET_INTERNAL_PORT=10140
-export BASKET_INTERNAL_URL=http://${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}
-export BASKET_EXTERNAL_URL=https://basket.${BASE_DOMAIN}
+export BASKET_INTERNAL_URL=http://\${BASKET_INTERNAL_HOST}:\${BASKET_INTERNAL_PORT}
+export BASKET_EXTERNAL_URL=https://basket.\${BASE_DOMAIN}
 export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
 export BASKET_PROXY_INTERNAL_PORT=1114
-export BASKET_PROXY_INTERNAL_URL=http://${BASKET_PROXY_INTERNAL_HOST}:${BASKET_PROXY_INTERNAL_PORT}
-export BASKET_PROXY_EXTERNAL_URL=https://${BASE_DOMAIN}/basket
+export BASKET_PROXY_INTERNAL_URL=http://\${BASKET_PROXY_INTERNAL_HOST}:\${BASKET_PROXY_INTERNAL_PORT}
+export BASKET_PROXY_EXTERNAL_URL=https://\${BASE_DOMAIN}/basket
 
 export SQS_HOSTNAME=127.0.0.1
 export SQS_PORT=9324
-export BASKET_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/basket
-export PUSHBOX_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/pushbox
-export PROFILE_UPDATES_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/profile-updates
-export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://${SQS_HOSTNAME}:${SQS_PORT}/account-events
+export BASKET_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/basket
+export PUSHBOX_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/pushbox
+export PROFILE_UPDATES_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/profile-updates
+export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/account-events
+export AWS_ACCESS_KEY_ID=forlocal
+export AWS_SECRET_ACCESS_KEY=sqsinstance
 EOF
 . /settings_include.sh
 
@@ -100,7 +104,7 @@ cd /
 git clone https://github.com/adamw/elasticmq
 cd /elasticmq
 wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
-cat > custom.conf <<EOF
+cat > /elasticmq/custom.conf <<EOF
 include classpath("application.conf")
 
 // What is the outside visible address of this ElasticMQ node
@@ -215,7 +219,8 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
     "format": "heka"
   },
   "sqs": {
-    "queue_url": "${BASKET_SQS_QUEUE_URL}"
+    "queue_url": "${BASKET_SQS_QUEUE_URL}",
+    "region": "elasticmq"
   }
 }
 EOF
@@ -239,7 +244,7 @@ npm install
 
 cd /
 git clone https://github.com/mozilla-services/pushbox
-cd pushbox
+cd /pushbox
 #rm rust-toolchain
 cat > /pushbox/Rocket.toml <<EOF
 [production]
@@ -268,7 +273,7 @@ rm /fxa-email-service/config/dev.json
 cat > /fxa-email-service/config/default.json <<EOF
 {
   "authdb": {
-    "baseuri": "http://auth.${BASE_DOMAIN}/"
+    "baseuri": "${AUTH_INTERNAL_URL}/"
   },
   "aws": {
     "region": "eu-west-1"
@@ -327,7 +332,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   "contentServer": {
     "url": "${CONTENT_EXTERNAL_URL}"
   },
-  "customsUrl": "none",
+  "customsUrl": "${CUSTOMS_INTERNAL_URL}/a/{id}",
   "lockoutEnabled": true,
   "log": {
     "fmt": "pretty",
@@ -372,7 +377,8 @@ cat > /fxa-auth-server/config/prod.json <<EOF
      "keepAlive": false
    },
    "profileServerMessaging": {
-    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}"
+    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}",
+    "region": "elasticmq"
    },
    "snsTopicArn": "disabled"
 }
@@ -382,7 +388,10 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
   "clientManagement": {
     "enabled": true
   },
-  "events": {},
+  "events": {
+    "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}",
+    "region": "elasticmq"
+  },
   "clients": [
     {
       "id": "dcdb5ae7add825d2",
@@ -826,7 +835,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
   "img": {
     "driver": "local"
   },
-  "customsUrl": "https://profile.${BASE_DOMAIN}/a/{id}",
+  "customsUrl": "${CUSTOMS_INTERNAL_URL}/a/{id}",
   "serverCache": {
     "useRedis": true
   },
@@ -865,13 +874,19 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "generateTimeout":11000
   },
   "events": {
-    "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}"
+    "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}",
+    "region": "elasticmq"
   },
   "authServerMessaging": {
-    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}"
+    "profileUpdatesQueueUrl": "${PROFILE_UPDATES_SQS_QUEUE_URL}",
+    "region": "elasticmq"
   }
 }
 EOF
+
+
+
+
 
 
 cd /
@@ -1064,7 +1079,7 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    proxy_pass ${BASKET_PROXY_INERNAL_URL}/;
+    proxy_pass ${BASKET_PROXY_INTERNAL_URL}/;
    }
   location / {
     proxy_set_header Host \$http_host;
@@ -1106,6 +1121,11 @@ volumes /var/lib/mysql
 # sync.${BASE_DOMAIN}
 
 cat > /start_all.sh <<EOF
+. /settings_include.sh
+
+export PATH=$PATH:$HOME/.cargo/bin
+source $HOME/.cargo/env
+
 pushd /elasticmq; java -Dconfig.file=custom.conf -jar elasticmq-server-0.14.6.jar & popd
 pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
