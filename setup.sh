@@ -257,7 +257,7 @@ fxa_host="${OAUTH_EXTERNAL_DOMAIN}"
 #dryrun=false
 ## used by the FXA Server key authorization
 server_token="${PUSHBOX_ROCKET_TOKEN}"
-sqs_url="${PUSHBOX_SQS_QUEUE_URL}""
+sqs_url="${PUSHBOX_SQS_QUEUE_URL}"
 [global.limits]
 # Maximum accepted data size for JSON payloads.
 json = 1048576
@@ -1122,6 +1122,12 @@ volumes /var/lib/mysql
 # sync.${BASE_DOMAIN}
 
 cat > /start_all.sh <<'EOF'
+
+redis-server &
+service nginx restart
+service memcached restart
+service mysql restart
+service postfix restart
 . /settings_include.sh
 
 export PATH=$PATH:$HOME/.cargo/bin
