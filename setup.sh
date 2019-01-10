@@ -88,10 +88,11 @@ export BASKET_PROXY_EXTERNAL_URL=https://\${BASE_DOMAIN}/basket
 
 export SQS_HOSTNAME=127.0.0.1
 export SQS_PORT=9324
-export BASKET_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/basket
-export PUSHBOX_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/pushbox
-export PROFILE_UPDATES_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/profile-updates
-export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}/queue/account-events
+export SQS_BASE_URL="http://\${SQS_HOSTNAME}:\${SQS_PORT}"
+export BASKET_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/basket
+export PUSHBOX_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/pushbox
+export PROFILE_UPDATES_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/profile-updates
+export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/account-events
 export AWS_ACCESS_KEY_ID=forlocal
 export AWS_SECRET_ACCESS_KEY=sqsinstance
 EOF
@@ -1120,14 +1121,14 @@ volumes /var/lib/mysql
 # content.${BASE_DOMAIN}
 # sync.${BASE_DOMAIN}
 
-cat > /start_all.sh <<EOF
+cat > /start_all.sh <<'EOF'
 . /settings_include.sh
 
 export PATH=$PATH:$HOME/.cargo/bin
 source $HOME/.cargo/env
 
 pushd /elasticmq; java -Dconfig.file=custom.conf -jar elasticmq-server-0.14.6.jar & popd
-pushd /pushbox; ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
+pushd /pushbox; AWS_LOCAL_SQS=${SQS_BASE_URL} ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
