@@ -2,6 +2,8 @@
 # Other Projects
 # https://github.com/mozilla-services/loop-server.git
 # https://github.com/mozilla/fxa-local-dev
+# https://github.com/michielbdejong/fxa-self-hosting
+# fxa-oauth-client
 
 set -e
 set +x
@@ -19,6 +21,7 @@ apt install curl nodejs npm git postfix \
 # libstdc++
 # openssl-dev
 npm install -g grunt-cli grunt
+
 
 # Install Rust
 sh <(curl https://sh.rustup.rs -sSf) -y
@@ -49,7 +52,8 @@ export CONTENT_EXTERNAL_URL=https://\${BASE_DOMAIN}
 export AUTH_INTERNAL_HOST=127.0.0.1
 export AUTH_INTERNAL_PORT=9000
 export AUTH_INTERNAL_URL=http://\${AUTH_INTERNAL_HOST}:\${AUTH_INTERNAL_PORT}
-export AUTH_EXTERNAL_URL=https://api.\${BASE_DOMAIN}
+export AUTH_EXTERNAL_DOMAIN=api.\${BASE_DOMAIN}
+export AUTH_EXTERNAL_URL=https://\${AUTH_EXTERNAL_DOMAIN}
 
 export OAUTH_INTERNAL_HOST=127.0.0.1
 export OAUTH_INTERNAL_PORT=9010
@@ -60,6 +64,7 @@ export OAUTH_EXTERNAL_URL=https://\${OAUTH_EXTERNAL_DOMAIN}
 
 export PROFILE_INTERNAL_HOST=127.0.0.1
 export PROFILE_INTERNAL_PORT=1111
+export PROFILE_INTERNAL_URL=http://\${PROFILE_INTERNAL_HOST}:\${PROFILE_INTERNAL_PORT}
 export PROFILE_EXTERNAL_URL=https://profile.\${BASE_DOMAIN}
 export STATIC_PROFILE_EXTERNAL_URL=https://static.profile.\${BASE_DOMAIN}
 
@@ -75,28 +80,57 @@ export PUSHBOX_INTERNAL_HOST=127.0.0.1
 export PUSHBOX_INTERNAL_PORT=8002
 export PUSHBOX_INTERNAL_URL=http://\${PUSHBOX_INTERNAL_HOST}:\${PUSHBOX_INTERNAL_PORT}/
 
+export BROWSERID_VERIFIER_HOST=127.0.0.1
+export BROWSERID_VERIFIER_PORT=5050
+export BROWSERID_VERIFIER_INTERNAL_URL=http://\${BROWSERID_VERIFIER_HOST}:\${BROWSERID_VERIFIER_PORT}
+export BROWSERID_VERIFIER_EXTERNAL_URL=https://verifier.\${BASE_DOMAIN}
+
+export SYNCTO_HOST=127.0.0.1
+export SYNCTO_PORT=8005
+export SYNCTO_INTERNAL_URL=http://\${SYNCTO_HOST}:\${SYNCTO_PORT}
+export SYNCTO_TOKEN=$(tr -dc 'A-F0-9' < /dev/urandom | head -c32)
+
+export TOKEN_EXTERNAL_URL=\${SYNC_EXTERNAL_URL}/token
+
 export CUSTOMS_INTERNAL_URL=http://127.0.0.1:7000
 
 export BASKET_INTERNAL_HOST=127.0.0.1
 export BASKET_INTERNAL_PORT=10140
 export BASKET_INTERNAL_URL=http://\${BASKET_INTERNAL_HOST}:\${BASKET_INTERNAL_PORT}
 export BASKET_EXTERNAL_URL=https://basket.\${BASE_DOMAIN}
+
 export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
 export BASKET_PROXY_INTERNAL_PORT=1114
 export BASKET_PROXY_INTERNAL_URL=http://\${BASKET_PROXY_INTERNAL_HOST}:\${BASKET_PROXY_INTERNAL_PORT}
 export BASKET_PROXY_EXTERNAL_URL=https://\${BASE_DOMAIN}/basket
 
+
 export SQS_HOSTNAME=127.0.0.1
 export SQS_PORT=9324
-export SQS_BASE_URL="http://\${SQS_HOSTNAME}:\${SQS_PORT}"
-export BASKET_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/basket
-export PUSHBOX_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/pushbox
-export PROFILE_UPDATES_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/profile-updates
-export ACCOUNT_EVENTS_SQS_QUEUE_URL=http://\${SQS_BASE_URL}/queue/account-events
+export SQS_BASE_URL=http://\${SQS_HOSTNAME}:\${SQS_PORT}
+export BASKET_SQS_QUEUE_URL=\${SQS_BASE_URL}/queue/basket
+export PUSHBOX_SQS_QUEUE_URL=\${SQS_BASE_URL}/queue/pushbox
+export PROFILE_UPDATES_SQS_QUEUE_URL=\${SQS_BASE_URL}/queue/profile-updates
+export ACCOUNT_EVENTS_SQS_QUEUE_URL=\${SQS_BASE_URL}/queue/account-events
 export AWS_ACCESS_KEY_ID=forlocal
 export AWS_SECRET_ACCESS_KEY=sqsinstance
 EOF
 . /settings_include.sh
+
+f_python_ssl() {
+  apt-get install libssl1.0-dev node-gyp nodejs-dev npm --assume-yes
+}
+f_rust_ssl() {
+  apt-get install libssl-dev --assume-yes
+}
+
+
+
+
+
+
+
+
 
 
 
@@ -120,7 +154,7 @@ node-address {
 rest-sqs {
     enabled = true
     bind-port = ${SQS_PORT}
-    bind-hostname = "${SQS_HOST}"
+    bind-hostname = "${SQS_HOSTNAME}"
     // Possible values: relaxed, strict
     sqs-limits = relaxed
 }
@@ -181,6 +215,8 @@ EOF
 
 
 
+
+
 service mysql start
 echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
 echo 'CREATE DATABASE pushbox' | mysql
@@ -191,9 +227,15 @@ service postfix start
 
 
 
+
+
+
+
+
 cd /
 git clone https://github.com/mozmeao/basket
 cd /basket
+f_python_ssl
 pip install --require-hashes --no-cache-dir -r requirements/prod.txt
 DEBUG=False SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=localhost, DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket \
     ./manage.py collectstatic --noinput
@@ -202,9 +244,17 @@ export BASKET_API_KEY=$(echo 'from basket.news.models import APIUser; ff = APIUs
 echo "export BASKET_API_KEY=${BASKET_API_KEY}" >> /settings_include.sh
 . /settings_include.sh
 
+
+
+
+
+
+
+
 cd /
 git clone https://github.com/mozilla/fxa-basket-proxy
 cd /fxa-basket-proxy
+f_python_ssl
 cat > /fxa-basket-proxy/config/production.json <<EOF
 {
   "env": "prod",
@@ -262,8 +312,20 @@ sqs_url="${PUSHBOX_SQS_QUEUE_URL}"
 # Maximum accepted data size for JSON payloads.
 json = 1048576
 EOF
-cargo run || true
+
+f_rust_ssl
+
+cargo build || true
 #sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
+
+
+
+
+
+
+
+
+
 
 
 
@@ -319,6 +381,18 @@ cat > /fxa-email-service/config/default.json <<EOF
   }
 }
 EOF
+f_rust_ssl
+cargo build
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -326,6 +400,7 @@ EOF
 cd /
 git clone git://github.com/mozilla/fxa-auth-server.git
 cd /fxa-auth-server
+f_python_ssl
 npm install
 bash scripts/download_l10n.sh
 cat > /fxa-auth-server/config/prod.json <<EOF
@@ -386,6 +461,14 @@ cat > /fxa-auth-server/config/prod.json <<EOF
 EOF
 cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
 {
+  "server": {
+    "host": "127.0.0.1",
+    "port": 9010
+  },
+  "serverInternal": {
+    "host": "127.0.0.1",
+    "port": 9011
+  },
   "clientManagement": {
     "enabled": true
   },
@@ -393,87 +476,7 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
     "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}",
     "region": "elasticmq"
   },
-  "clients": [
-    {
-      "id": "dcdb5ae7add825d2",
-      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
-      "hashedSecretPrevious": "0726282857047586fb4edc335b5492ef1e4a0d95d3f1114627bb89b4e57cf6e1",
-      "name": "Mocha",
-      "imageUri": "https://example.domain/logo",
-      "redirectUri": "https://example.domain/return?foo=bar",
-      "trusted": true,
-      "canGrant": false
-    },
-    {
-      "id": "98e6508e88680e1a",
-      "hashedSecret": "0000000000000000000000000000000000000000000000000000000000000000",
-      "name": "Admin",
-      "imageUri": "https://example2.domain/logo",
-      "redirectUri": "https://example2.domain/redirect",
-      "trusted": true,
-      "canGrant": true,
-      "publicClient": true
-    },
-    {
-      "id": "98e6508e88680e1b",
-      "hashedSecret": "ba5cfb370fd782f7eae1807443ab816288c101a54c0d80a09063273c86d3c435",
-      "name": "URN",
-      "imageUri": "https://example2.domain/logo",
-      "redirectUri": "urn:ietf:wg:oauth:2.0:fx:webchannel",
-      "trusted": true,
-      "canGrant": false
-    },
-    {
-      "name": "NoRedirectUri",
-      "id": "ea3ca969f8c6bb0d",
-      "hashedSecret": "d962cdf34a33ab26f7a6b900d0e1028f182d8e4811cb9b5ac4f20275525c8f54",
-      "imageUri": "",
-      "redirectUri": "",
-      "trusted": true,
-      "canGrant": false
-    },
-    {
-      "name": "Untrusted",
-      "id": "ea3ca969f8c6bb0e",
-      "hashedSecret": "ec62e3281e3b56e702fe7e82ca7b1fa59d6c2a6766d6d28cccbf8bfa8d5fc8a8",
-      "imageUri": "",
-      "redirectUri": "https://example.domain/return?foo=bar",
-      "trusted": false,
-      "canGrant": false
-    },
-    {
-      "id": "38a6b9b3a65a1871",
-      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
-      "name": "Public Client PKCE",
-      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
-      "redirectUri": "https://example.domain/return?foo=bar",
-      "trusted": true,
-      "allowedScopes": "kv",
-      "canGrant": false,
-      "publicClient": true
-    },
-    {
-      "id": "38a6b9b3a65a1872",
-      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
-      "name": "Public Client PKCE with no allowedScoeps",
-      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
-      "redirectUri": "https://example.domain/return?foo=bar",
-      "trusted": true,
-      "canGrant": false,
-      "publicClient": true
-    },
-    {
-      "id": "aaa6b9b3a65a1871",
-      "hashedSecret": "289a885946ee316844d9ffd0d725ee714901548a1e6507f1a40fb3c2ae0c99f1",
-      "name": "Scoped Key Client",
-      "imageUri": "https://mozorg.cdn.mozilla.net/media/img/firefox/new/header-firefox.png",
-      "redirectUri": "https://example.domain/return?foo=bar",
-      "trusted": true,
-      "allowedScopes": "https://identity.mozilla.com/apps/sample-scope-can-scope-key https://identity.mozilla.com/apps/sample-scope kv https://identity.mozilla.com/apps/another-can-scope-key",
-      "canGrant": false,
-      "publicClient": false
-    }
-  ],
+  "clients": [],
   "logging": {
     "level": "error",
     "fmt": "pretty"
@@ -495,7 +498,11 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
   "db": {
     "driver": "mysql"
   },
-  "contentUrl": "${CONTENT_EXTERNAL_URL}/oauth",
+  "browserid": {
+    "issuer": "${AUTH_EXTERNAL_DOMAIN}",
+    "verificationUrl": "${BROWSERID_VERIFIER_EXTERNAL_URL}/v2"
+  },
+  "contentUrl": "${CONTENT_EXTERNAL_URL}/oauth/",
   "admin": {
     "whitelist": ["@dockstudios.co.uk\$"]
   },
@@ -506,20 +513,7 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
     "host": "localhost",
     "database": "fxa_oauth"
   },
-  "scopes": [
-    {
-      "scope": "https://identity.mozilla.com/apps/sample-scope",
-      "hasScopedKeys": false
-    },
-    {
-      "scope": "https://identity.mozilla.com/apps/sample-scope-can-scope-key",
-      "hasScopedKeys": true
-    },
-    {
-      "scope": "https://identity.mozilla.com/apps/another-can-scope-key",
-      "hasScopedKeys": true
-    }
-  ]
+  "scopes": []
 }
 EOF
 NODE_ENV=prod node ./scripts/gen_keys.js
@@ -535,9 +529,56 @@ NODE_ENV=prod node ./scripts/gen_vapid_keys.js
 
 
 
+
+
+
+
+
+cd /
+git clone https://github.com/mozilla/browserid-verifier.git
+cd /browserid-verifier
+f_python_ssl
+npm install
+cat > /browserid-verifier/config/production.json <<EOF
+{
+    "logging": {
+        "handlers": {
+            "console": {
+                "class": "intel/handlers/console",
+                "formatter": "json"
+            }
+        },
+        "loggers": {
+            "bid.summary": {
+                "propagate": true
+            }
+        }
+    },
+    "insecureSSL": true,
+    "port": ${BROWSERID_VERIFIER_PORT},
+    "ip": "${BROWSERID_VERIFIER_HOST}"
+}
+EOF
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cd /
 git clone https://github.com/mozilla/fxa-content-server
 cd /fxa-content-server
+f_python_ssl
 npm install npm@6 webpack@4.16.1 --global
 /usr/local/bin/npm install --production
 #npm install bluebird
@@ -554,12 +595,12 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "oauth_url": "${OAUTH_EXTERNAL_URL}",
   "profile_url": "${PROFILE_EXTERNAL_URL}",
   "profile_images_url": "${STATIC_PROFILE_EXTERNAL_URL}",
+  "fxaccount_url": "${AUTH_EXTERNAL_URL}",
   "marketing_email": {
     "api_url": "${BASKET_EXTERNAL_URL}",
     "preferences_url": "http://localhost:1115"
   },
   "flow_id_key": "${FLOW_HMAC_KEY}",
-  "fxaccount_url": "${AUTH_EXTERNAL_URL}",
   "geodb": {
     "enabled": ${ENABLE_GEODB}
   },
@@ -608,6 +649,7 @@ EOF
 cd /
 git clone https://github.com/mozilla/fxa-auth-db-mysql
 cd /fxa-auth-db-mysql
+f_python_ssl
 npm install
 cat > /fxa-auth-db-mysql/config/config.js <<EOF
 
@@ -818,9 +860,10 @@ node bin/db_patcher.js
 cd /
 git clone https://github.com/mozilla/fxa-profile-server
 cd fxa-profile-server
+f_python_ssl
 npm install
 sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
-sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
+#sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
 
 cat > /fxa-profile-server/config/production.json <<EOF
 {
@@ -841,7 +884,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
     "useRedis": true
   },
   "authServer": {
-    "url":"${AUTH_INTERNAL_URL}/v1"
+    "url":"${AUTH_EXTERNAL_URL}/v1"
   },
   "mysql":{
      "createSchema":true,
@@ -852,7 +895,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "port":"3306"
   },
   "oauth":{
-     "url":"${OAUTH_INTERNAL_URL}"
+     "url":"${OAUTH_EXTERNAL_URL}/v1"
   },
   "publicUrl":"${PROFILE_EXTERNAL_URL}",
   "server":{
@@ -893,7 +936,45 @@ EOF
 cd /
 git clone https://github.com/mozilla/fxa-customs-server
 cd /fxa-customs-server
+f_python_ssl
 npm install
+
+
+
+
+
+
+
+cd /
+git clone https://github.com/mozilla-services/syncto.git
+f_python_ssl
+cd /syncto
+sed -i 's/cryptography==.*/cryptography/g' ./requirements.txt
+pip install -r ./requirements.txt
+cat > /syncto/config/production.ini <<EOF
+[app:main]
+use = egg:syncto
+
+syncto.cache_hmac_secret = "70a73e5719a5f844cfb5dc02d8b370f718ced6fe9b93d81b8c42c5ee417b6bbb"
+syncto.record_history_put_enabled = true
+syncto.record_history_delete_enabled = true
+
+syncto.cache_backend = cliquet.cache.redis
+syncto.cache_url = redis://localhost:6379/1
+syncto.http_scheme = http
+syncto.http_host = ${SYNCTO_HOST}
+syncto.retry_after_seconds = 30
+syncto.batch_max_requests = 25
+syncto.cache_hmac_secret = ${SYNCTO_TOKEN}
+syncto.token_server_url = https://${TOKEN_EXTERNAL_URL}/
+
+
+[server:main]
+use = egg:waitress#main
+host = 0.0.0.0
+port = 8000
+
+EOF
 
 
 
@@ -902,6 +983,7 @@ npm install
 cd /
 git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
+f_python_ssl
 # Upgrade of pip breaks it on ubuntu-18.04 (apparently)
 #pip install --upgrade pip
 #pip install --upgrade --no-cache-dir -r requirements.txt
@@ -1067,6 +1149,24 @@ server {
 }
 server {
   listen 443 ssl;
+  server_name profile.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${PROFILE_INTERNAL_URL}/;
+   }
+}
+server {
+  listen 443 ssl;
   server_name ${BASE_DOMAIN};
 
   ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
@@ -1095,12 +1195,12 @@ server {
 }
 EOF
 
-docker cp  /fxa-auth-server/config/index.js
-docker cp /fxa-content-server/server/config/local.json
-docker cp /fxa-auth-db-mysql/config/config.js
+#docker cp  /fxa-auth-server/config/index.js
+#docker cp /fxa-content-server/server/config/local.json
+#docker cp /fxa-auth-db-mysql/config/config.js
 
 
-volumes /var/lib/mysql
+#volumes /var/lib/mysql
 
 # Ports
 # 8002 - pushbox
@@ -1135,6 +1235,7 @@ source $HOME/.cargo/env
 
 pushd /elasticmq; java -Dconfig.file=custom.conf -jar elasticmq-server-0.14.6.jar & popd
 pushd /pushbox; AWS_LOCAL_SQS=${SQS_BASE_URL} ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
+pushd /browserid-verifier; NODE_ENV=production CONFIG_FILES=config/production.json node /browserid-verifier/server.js & popd;
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
