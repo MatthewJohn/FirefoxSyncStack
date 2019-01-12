@@ -47,7 +47,8 @@ export OAUTH_SECRET=$(openssl rand -base64 32)
 export CONTENT_INTERNAL_HOST=127.0.0.1
 export CONTENT_INTERNAL_PORT=3030
 export CONTENT_INTERNAL_URL=http://\${CONTENT_INTERNAL_HOST}:\${CONTENT_INTERNAL_PORT}
-export CONTENT_EXTERNAL_URL=https://\${BASE_DOMAIN}
+export CONTENT_EXTERNAL_DOMAIN=\${BASE_DOMAIN}
+export CONTENT_EXTERNAL_URL=https://\${CONTENT_EXTERNAL_DOMAIN}
 # AUTH (API) SERVER
 export AUTH_INTERNAL_HOST=127.0.0.1
 export AUTH_INTERNAL_PORT=9000
@@ -75,6 +76,7 @@ export SYNC_EXTERNAL_URL=https://sync.\${BASE_DOMAIN}
 
 export AUTH_DB_INTERNAL_HOST=127.0.0.1
 export AUTH_DB_INTERNAL_PORT=8080
+export AUTH_DB_INTERNAL_URL=http://\${AUTH_DB_INTERNAL_HOST}:\${AUTH_DB_INTERNAL_PORT}
 
 export PUSHBOX_INTERNAL_HOST=127.0.0.1
 export PUSHBOX_INTERNAL_PORT=8002
@@ -97,12 +99,14 @@ export CUSTOMS_INTERNAL_URL=http://127.0.0.1:7000
 export BASKET_INTERNAL_HOST=127.0.0.1
 export BASKET_INTERNAL_PORT=10140
 export BASKET_INTERNAL_URL=http://\${BASKET_INTERNAL_HOST}:\${BASKET_INTERNAL_PORT}
-export BASKET_EXTERNAL_URL=https://basket.\${BASE_DOMAIN}
+export BASKET_EXTERNAL_DOMAIN=basket.\${BASE_DOMAIN}
+export BASKET_EXTERNAL_URL=https://\${BASKET_PROXY_EXTERNAL_DOMAIN}
 
 export BASKET_PROXY_INTERNAL_HOST=127.0.0.1
 export BASKET_PROXY_INTERNAL_PORT=1114
 export BASKET_PROXY_INTERNAL_URL=http://\${BASKET_PROXY_INTERNAL_HOST}:\${BASKET_PROXY_INTERNAL_PORT}
-export BASKET_PROXY_EXTERNAL_URL=https://\${BASE_DOMAIN}/basket
+export BASKET_PROXY_EXTERNAL_DOMAIN=\${CONTENT_EXTERNAL_DOMAIN}
+export BASKET_PROXY_EXTERNAL_URL=https://\${BASKET_PROXY_EXTERNAL_DOMAIN}/basket
 
 
 export SQS_HOSTNAME=127.0.0.1
@@ -236,12 +240,15 @@ cd /
 git clone https://github.com/mozmeao/basket
 cd /basket
 f_python_ssl
+virtualenv .
+. ./bin/activate
 pip install --require-hashes --no-cache-dir -r requirements/prod.txt
 DEBUG=False SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=localhost, DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket \
     ./manage.py collectstatic --noinput
 SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py migrate
 export BASKET_API_KEY=$(echo 'from basket.news.models import APIUser; ff = APIUser(name="Firefox"); ff.save(); print ff.api_key'  | SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py shell)
 echo "export BASKET_API_KEY=${BASKET_API_KEY}" >> /settings_include.sh
+deactivate
 . /settings_include.sh
 
 
@@ -257,10 +264,10 @@ cd /fxa-basket-proxy
 f_python_ssl
 cat > /fxa-basket-proxy/config/production.json <<EOF
 {
-  "env": "prod",
+  "env": "production",
   "basket": {
     "api_url": "${BASKET_INTERNAL_URL}/news",
-    "proxy_url": "${BASKET_EXTERNAL_URL}",
+    "proxy_url": "${BASKET_PROXY_EXTERNAL_URL}",
     "api_key": "${BASKET_API_KEY}",
     "source_url": "${CONTENT_EXTERNAL_URL}"
   },
@@ -272,7 +279,8 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
   "sqs": {
     "queue_url": "${BASKET_SQS_QUEUE_URL}",
     "region": "elasticmq"
-  }
+  },
+  "source_url": "${CONTENT_EXTERNAL_DOMAIN}"
 }
 EOF
 npm install
@@ -336,7 +344,7 @@ rm /fxa-email-service/config/dev.json
 cat > /fxa-email-service/config/default.json <<EOF
 {
   "authdb": {
-    "baseuri": "${AUTH_INTERNAL_URL}/"
+    "baseuri": "${AUTH_DB_INTERNAL_URL}/"
   },
   "aws": {
     "region": "eu-west-1"
@@ -408,6 +416,8 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   "contentServer": {
     "url": "${CONTENT_EXTERNAL_URL}"
   },
+  "publicUrl": "${AUTH_EXTERNAL_URL}",
+  "domain": "${AUTH_EXTERNAL_URL}",
   "customsUrl": "${CUSTOMS_INTERNAL_URL}/a/{id}",
   "lockoutEnabled": true,
   "log": {
@@ -415,8 +425,12 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     "level": "info"
   },
   "sms": {
+    "enabled": false,
     "isStatusGeoEnabled": false,
     "useMock": true
+  },
+  "httpdb": {
+    "url": "${AUTH_DB_INTERNAL_URL}/"
   },
   "smtp": {
     "host": "127.0.0.1",
@@ -448,7 +462,7 @@ cat > /fxa-auth-server/config/prod.json <<EOF
   },
   "oauth": {
      "clientIds": {},
-     "url": "${OAUTH_EXTERNAL_URL}",
+     "url": "${OAUTH_INTERNAL_URL}",
      "secretKey": "${OAUTH_SECRET}",
      "keepAlive": false
    },
@@ -476,7 +490,17 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
     "queueUrl": "${ACCOUNT_EVENTS_SQS_QUEUE_URL}",
     "region": "elasticmq"
   },
-  "clients": [],
+  "clients": [
+    {
+      "id": "98e6508e88680e1a",
+      "hashedSecret": "ba5cfb370fd782f7eae1807443ab816288c101a54c0d80a09063273c86d3c435",
+      "name": "Firefox Accounts Settings",
+      "imageUri": "https://${BASE_DOMAIN}/logo",
+      "redirectUri": "${CONTENTEXTERNAL_URL}/",
+      "trusted": true,
+      "canGrant": true
+    }
+  ],
   "logging": {
     "level": "error",
     "fmt": "pretty"
@@ -500,7 +524,7 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
   },
   "browserid": {
     "issuer": "${AUTH_EXTERNAL_DOMAIN}",
-    "verificationUrl": "${BROWSERID_VERIFIER_EXTERNAL_URL}/v2"
+    "verificationUrl": "${BROWSERID_VERIFIER_INTERNAL_URL}/v2"
   },
   "contentUrl": "${CONTENT_EXTERNAL_URL}/oauth/",
   "admin": {
@@ -597,19 +621,19 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "profile_images_url": "${STATIC_PROFILE_EXTERNAL_URL}",
   "fxaccount_url": "${AUTH_EXTERNAL_URL}",
   "marketing_email": {
-    "api_url": "${BASKET_EXTERNAL_URL}",
+    "api_url": "${BASKET_PROXY_EXTERNAL_URL}",
     "preferences_url": "http://localhost:1115"
   },
   "flow_id_key": "${FLOW_HMAC_KEY}",
   "geodb": {
     "enabled": ${ENABLE_GEODB}
   },
-  basket: {
-    api_key: "${BASKET_API_KEY}",
-    api_url: "${BASKET_INTERNAL_URL}",
-    proxy_url: "${BASKET_EXTERNAL_URL}"
+  "basket": {
+    "api_key": "${BASKET_API_KEY}",
+    "api_url": "${BASKET_INTERNAL_URL}",
+    "proxy_url": "${BASKET_PROXY_EXTERNAL_URL}"
   },
-  "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}",
+  "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}/token",
   "client_sessions": {
     "cookie_name": "session",
     "secret": "changeme",
@@ -626,7 +650,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
   "scopedKeys": {
     "enabled": true
   },
-  "allowed_metrics_flow_cors_origins": ["https://mail.${BASE_DOMAIN}"],
+  "allowed_metrics_flow_cors_origins": ["https://${BASE_DOMAIN}"],
   "allowed_parent_origins": ["https://${BASE_DOMAIN}"],
   "static_directory": "dist",
   "page_template_subdirectory": "dist",
@@ -668,12 +692,12 @@ module.exports = function (fs, path, url, convict) {
     },
     hostname: {
       doc: 'The IP address the server should bind to',
-      default: '127.0.0.1',
+      default: '${AUTH_DB_INTERNAL_HOST}',
       env: 'HOST',
     },
     port: {
       doc: 'The port the server should bind to',
-      default: 8080,
+      default: ${AUTH_DB_INTERNAL_PORT},
       format: 'port',
       env: 'PORT',
     },
@@ -884,7 +908,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
     "useRedis": true
   },
   "authServer": {
-    "url":"${AUTH_EXTERNAL_URL}/v1"
+    "url":"${AUTH_INTERNAL_URL}/v1"
   },
   "mysql":{
      "createSchema":true,
@@ -895,7 +919,7 @@ cat > /fxa-profile-server/config/production.json <<EOF
      "port":"3306"
   },
   "oauth":{
-     "url":"${OAUTH_EXTERNAL_URL}/v1"
+     "url":"${OAUTH_INTERNAL_URL}/v1"
   },
   "publicUrl":"${PROFILE_EXTERNAL_URL}",
   "server":{
@@ -949,6 +973,8 @@ cd /
 git clone https://github.com/mozilla-services/syncto.git
 f_python_ssl
 cd /syncto
+virtualenv .
+. ./bin/activate
 sed -i 's/cryptography==.*/cryptography/g' ./requirements.txt
 pip install -r ./requirements.txt
 cat > /syncto/config/production.ini <<EOF
@@ -972,10 +998,10 @@ syncto.token_server_url = https://${TOKEN_EXTERNAL_URL}/
 [server:main]
 use = egg:waitress#main
 host = 0.0.0.0
-port = 8000
+port = ${SYNCTO_PORT}
 
 EOF
-
+deactivate
 
 
 
@@ -988,6 +1014,8 @@ f_python_ssl
 #pip install --upgrade pip
 #pip install --upgrade --no-cache-dir -r requirements.txt
 # pip install --upgrade --no-cache-dir -r dev-requirements.txt
+virtualenv .
+. ./bin/virtualenv
 make
 local/bin/pip install gunicorn
 export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
@@ -996,7 +1024,7 @@ cat > /syncserver/syncserver.ini <<EOF
 use = egg:gunicorn
 host = ${SYNC_INTERNAL_HOST}
 port = ${SYNC_INTERNAL_PORT}
-workers = 2
+workers = 1
 timeout = 60
 
 [app:main]
@@ -1041,7 +1069,7 @@ force_wsgi_environ = true
 
 forwarded_allow_ips = *
 EOF
-
+deactivate
 
 
 
@@ -1129,6 +1157,25 @@ server {
     proxy_pass ${BASKET_INTERNAL_URL}/;
    }
 }
+
+server {
+  listen 443 ssl;
+  server_name verifier.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${BROWSERID_VERIFIER_INTERNAL_URL}/;
+   }
+}
 server {
   listen 443 ssl;
   server_name oauth.${BASE_DOMAIN};
@@ -1180,6 +1227,7 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
+    rewrite ^/basket(.*)\$ \$1 last;
     proxy_pass ${BASKET_PROXY_INTERNAL_URL}/;
    }
   location / {
@@ -1239,23 +1287,34 @@ pushd /browserid-verifier; NODE_ENV=production CONFIG_FILES=config/production.js
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
-pushd /fxa-auth-server; NODE_ENV=prod scripts/start-server.sh & popd
-pushd /fxa-auth-server/fxa-oauth-server; NODE_ENV=prod node bin/server.js & popd
+pushd /fxa-auth-server; NODE_ENV=prod /fxa-auth-server/scripts/start-server.sh & popd
+pushd /fxa-auth-server/fxa-oauth-server; NODE_ENV=prod node /fxa-auth-server/fxa-oauth-server/bin/server.js & popd
 
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
-pushd /basket; SECRET_KEY=${BASKET_SECRET_KEY} gunicorn basket.wsgi --bind "${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}" \
-                          --workers "${WSGI_NUM_WORKERS:-8}" \
-                          --worker-class "${WSGI_WORKER_CLASS:-meinheld.gmeinheld.MeinheldWorker}" \
-                          --log-level "${WSGI_LOG_LEVEL:-info}" \
-                          --error-logfile - \
-                          --access-logfile - & popd
+pushd /basket; . ./bin/activate;
+  SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=${CONTENT_EXTERNAL_DOMAIN} gunicorn basket.wsgi \
+    --bind "${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}" \
+    --workers "${WSGI_NUM_WORKERS:-8}" \
+    --worker-class "${WSGI_WORKER_CLASS:-meinheld.gmeinheld.MeinheldWorker}" \
+    --log-level "${WSGI_LOG_LEVEL:-info}" \
+    --error-logfile - \
+    --access-logfile - &
+  #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-clock.sh &
+  #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-donate-worker.sh &
+  #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-fxa-activity-worker.sh &
+  #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-fxa-events-worker.sh &
+  #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-worker.sh &
+deactivate; popd
 
 pushd /fxa-basket-proxy; NODE_ENV=production node bin/basket-proxy-server.js & popd
+pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
+                                                  --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+                                                  --paste /syncto/config/production.ini \
+                                                    syncserver.wsgi_app & deactivate; popd
 
-
-pushd /syncserver; /syncserver/local/bin/gunicorn --bind ${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT} \
+pushd /syncserver; . ./bin/activate; /syncserver/local/bin/gunicorn --bind ${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT} \
                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
                                                   --paste /syncserver/syncserver.ini \
-                                                    syncserver.wsgi_app & popd
+                                                    syncserver.wsgi_app & deactivate; popd
 EOF
