@@ -243,10 +243,11 @@ f_python_ssl
 virtualenv .
 . ./bin/activate
 pip install --require-hashes --no-cache-dir -r requirements/prod.txt
+sed -i 's/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g' /basket/basket/settings.py
 DEBUG=False SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=localhost, DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket \
     ./manage.py collectstatic --noinput
-SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py migrate
-export BASKET_API_KEY=$(echo 'from basket.news.models import APIUser; ff = APIUser(name="Firefox"); ff.save(); print ff.api_key'  | SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py shell)
+SECRET_KEY=${BASKET_SECRET_KEY} DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket ./manage.py migrate
+export BASKET_API_KEY=$(echo 'from basket.news.models import APIUser; ff = APIUser(name="Firefox"); ff.save(); print ff.api_key' | DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket SECRET_KEY=${BASKET_SECRET_KEY} ./manage.py shell)
 echo "export BASKET_API_KEY=${BASKET_API_KEY}" >> /settings_include.sh
 deactivate
 . /settings_include.sh
@@ -267,24 +268,31 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
   "env": "production",
   "basket": {
     "api_url": "${BASKET_INTERNAL_URL}/news",
-    "proxy_url": "${BASKET_PROXY_EXTERNAL_URL}",
+    "proxy_url": "${BASKET_PROXY_INTERNAL_URL}",
     "api_key": "${BASKET_API_KEY}",
-    "source_url": "${CONTENT_EXTERNAL_URL}"
+    "source_url": "${CONTENT_EXTERNAL_URL}",
+    "sqs": {
+      "queue_url": "${BASKET_SQS_QUEUE_URL}",
+      "region": "elasticmq"
+    }
   },
   "fxaccount_url": "${AUTH_INTERNAL_URL}",
   "oauth_url": "${OAUTH_INTERNAL_URL}",
   "log": {
     "format": "heka"
-  },
-  "sqs": {
-    "queue_url": "${BASKET_SQS_QUEUE_URL}",
-    "region": "elasticmq"
-  },
-  "source_url": "${CONTENT_EXTERNAL_DOMAIN}"
+  }
 }
 EOF
 npm install
-
+# cat > /fxa-basket-proxy/node_modules/aws-sdk/lib/region_config_data.json <<EOF
+# {
+#   "rules": {
+#     "*/*": {
+#       "endpoint": "127.0.0.1"
+#     }
+#   }
+# }
+# EOF
 
 
 
@@ -1219,7 +1227,7 @@ server {
   ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
   ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
 
-  location /basket {
+  location /basket/ {
     proxy_set_header Host \$http_host;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -1227,7 +1235,7 @@ server {
     proxy_redirect off;
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
-    rewrite ^/basket(.*)\$ \$1 last;
+    #rewrite ^/lookup-user/(.*) /lookup-user\$1;
     proxy_pass ${BASKET_PROXY_INTERNAL_URL}/;
    }
   location / {
@@ -1292,8 +1300,18 @@ pushd /fxa-auth-server/fxa-oauth-server; NODE_ENV=prod node /fxa-auth-server/fxa
 
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
+
+pushd /fxa-basket-proxy; NODE_ENV=production CONFIG_FILES=config/production.json node /fxa-basket-proxy/bin/basket-event-handler.js &
+                         NODE_ENV=production CONFIG_FILES=config/production.json node bin/basket-proxy-server.js & popd
+
+
+pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
+                                                  --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+                                                  --paste /syncto/config/production.ini \
+                                                    syncserver.wsgi_app & deactivate; popd
+
 pushd /basket; . ./bin/activate;
-  SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=${CONTENT_EXTERNAL_DOMAIN} gunicorn basket.wsgi \
+  SECRET_KEY=${BASKET_SECRET_KEY} DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket ALLOWED_HOSTS=${BASKET_EXTERNAL_DOMAIN},${CONTENT_EXTERNAL_DOMAIN},127.0.0.1 gunicorn basket.wsgi \
     --bind "${BASKET_INTERNAL_HOST}:${BASKET_INTERNAL_PORT}" \
     --workers "${WSGI_NUM_WORKERS:-8}" \
     --worker-class "${WSGI_WORKER_CLASS:-meinheld.gmeinheld.MeinheldWorker}" \
@@ -1306,12 +1324,6 @@ pushd /basket; . ./bin/activate;
   #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-fxa-events-worker.sh &
   #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-worker.sh &
 deactivate; popd
-
-pushd /fxa-basket-proxy; NODE_ENV=production node bin/basket-proxy-server.js & popd
-pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
-                                                  --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
-                                                  --paste /syncto/config/production.ini \
-                                                    syncserver.wsgi_app & deactivate; popd
 
 pushd /syncserver; . ./bin/activate; /syncserver/local/bin/gunicorn --bind ${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT} \
                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
