@@ -67,6 +67,9 @@ export PROFILE_INTERNAL_HOST=127.0.0.1
 export PROFILE_INTERNAL_PORT=1111
 export PROFILE_INTERNAL_URL=http://\${PROFILE_INTERNAL_HOST}:\${PROFILE_INTERNAL_PORT}
 export PROFILE_EXTERNAL_URL=https://profile.\${BASE_DOMAIN}
+export STATIC_PROFILE_INTERNAL_HOST=127.0.0.1
+export STATIC_PROFILE_INTERNAL_PORT=1112
+export STATIC_PROFILE_INTERNAL_URL=http://\${STATIC_PROFILE_INTERNAL_HOST}:\${STATIC_PROFILE_INTERNAL_PORT}
 export STATIC_PROFILE_EXTERNAL_URL=https://static.profile.\${BASE_DOMAIN}
 
 export SYNC_INTERNAL_HOST=127.0.0.1
@@ -909,7 +912,11 @@ cat > /fxa-profile-server/config/production.json <<EOF
     "driver": "mysql"
   },
   "img": {
-    "driver": "local"
+    "driver": "local",
+    "url": "${CONTENT_EXTERNAL_URL}/a/{id}",
+    "providers": {
+      "fxa": "^${CONTENT_EXTERNAL_URL}/a/[0-9a-f]{32}\$"
+    }
   },
   "customsUrl": "${CUSTOMS_INTERNAL_URL}/a/{id}",
   "serverCache": {
@@ -984,12 +991,14 @@ cd /syncto
 virtualenv .
 . ./bin/activate
 sed -i 's/cryptography==.*/cryptography/g' ./requirements.txt
+sed -i 's/cffi==.*/cffi/g' ./requirements.txt
+sed -i 's/idna==.*/cffi/g' ./requirements.txt
 pip install -r ./requirements.txt
+rm -rf /syncto/local/lib/python2.7/site-packages/OpenSSL
 cat > /syncto/config/production.ini <<EOF
 [app:main]
 use = egg:syncto
 
-syncto.cache_hmac_secret = "70a73e5719a5f844cfb5dc02d8b370f718ced6fe9b93d81b8c42c5ee417b6bbb"
 syncto.record_history_put_enabled = true
 syncto.record_history_delete_enabled = true
 
@@ -1000,7 +1009,7 @@ syncto.http_host = ${SYNCTO_HOST}
 syncto.retry_after_seconds = 30
 syncto.batch_max_requests = 25
 syncto.cache_hmac_secret = ${SYNCTO_TOKEN}
-syncto.token_server_url = https://${TOKEN_EXTERNAL_URL}/
+syncto.token_server_url = ${TOKEN_EXTERNAL_URL}/
 
 
 [server:main]
@@ -1009,6 +1018,8 @@ host = 0.0.0.0
 port = ${SYNCTO_PORT}
 
 EOF
+python ./setup.py build
+python ./setup.py install
 deactivate
 
 
@@ -1026,7 +1037,7 @@ virtualenv .
 . ./bin/virtualenv
 make
 local/bin/pip install gunicorn
-export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum)
+export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum | awk '{ print $1 }')
 cat > /syncserver/syncserver.ini <<EOF
 [server:main]
 use = egg:gunicorn
@@ -1278,6 +1289,7 @@ EOF
 # sync.${BASE_DOMAIN}
 
 cat > /start_all.sh <<'EOF'
+#!/bin/bash
 
 redis-server &
 service nginx restart
@@ -1305,10 +1317,15 @@ pushd /fxa-basket-proxy; NODE_ENV=production CONFIG_FILES=config/production.json
                          NODE_ENV=production CONFIG_FILES=config/production.json node bin/basket-proxy-server.js & popd
 
 
-pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
-                                                  --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
-                                                  --paste /syncto/config/production.ini \
-                                                    syncserver.wsgi_app & deactivate; popd
+# pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
+#                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
+#                                                   --paste /syncto/config/production.ini \
+#                                                     app.wsgi & deactivate; popd
+
+pushd /syncto; . ./bin/activate;
+  python /syncto/lib/python2.7/site-packages/cliquet/scripts/cliquet.py --ini /syncto/config/production.ini migrate;
+  python /syncto/local/lib/python2.7/site-packages/pyramid/scripts/pserve.py /syncto/config/production.ini --reload & deactivate; popd
+
 
 pushd /basket; . ./bin/activate;
   SECRET_KEY=${BASKET_SECRET_KEY} DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket ALLOWED_HOSTS=${BASKET_EXTERNAL_DOMAIN},${CONTENT_EXTERNAL_DOMAIN},127.0.0.1 gunicorn basket.wsgi \
@@ -1329,4 +1346,11 @@ pushd /syncserver; . ./bin/activate; /syncserver/local/bin/gunicorn --bind ${SYN
                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
                                                   --paste /syncserver/syncserver.ini \
                                                     syncserver.wsgi_app & deactivate; popd
+
+while true
+do
+  sleep 30
+done
+
 EOF
+chmod +x /start_all.sh
