@@ -18,7 +18,7 @@ RUN npm install -g grunt-cli grunt
 
 
 # Install Rust
-RUN sh <(curl https://sh.rustup.rs -sSf) -y
+RUN bash -c 'sh <(curl https://sh.rustup.rs -sSf) -y'
 
 # Build failure with 'unresolved import `core::ffi::c_void`'
 #rustup default nightly
@@ -27,18 +27,16 @@ COPY environ.sh /environ.sh
 
 
 # Install local SQS
-cd /
-git clone https://github.com/adamw/elasticmq
-cd /elasticmq
-wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
+RUN cd /; git clone https://github.com/adamw/elasticmq; \
+    cd /elasticmq; wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
 
 
 # Install basket
-RUN . /environ.sh; cd /; git clone https://github.com/mozmeao/basket; \
+RUN bash -c '. /environ.sh; cd /; git clone https://github.com/mozmeao/basket; \
     cd /basket; f_python_ssl; virtualenv .; . ./bin/activate; \
     pip install --require-hashes --no-cache-dir -r requirements/prod.txt; \
     sed -i 's/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g' /basket/basket/settings.py; \
-    deactivate
+    deactivate'
 
 
 # Install basket-proxy
@@ -124,7 +122,8 @@ RUN cd /; git clone https://github.com/mozilla-services/syncserver; \
 
 COPY ./setup.sh /
 
-ENV BASE_DOMAIN
+ARG BASE_DOMAIN
+ENV BASE_DOMAIN=$BASE_DOMAIN
 RUN /setup.sh
 
 VOLUME /var/lib/mysql
