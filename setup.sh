@@ -1,3 +1,4 @@
+#!/bin/bash
 
 # Other Projects
 # https://github.com/mozilla-services/loop-server.git
@@ -34,7 +35,7 @@ source $HOME/.cargo/env
 cat > /settings_include.sh <<EOF
 export MYSQL_USER=root
 export MYSQL_PASSWORD=
-export BASE_DOMAIN=ff.dockstudios.co.uk
+export BASE_DOMAIN=fsync.dockstudios.co.uk
 export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
 export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
 export BASKET_SECRET_KEY=$(openssl rand -base64 32)
@@ -224,13 +225,14 @@ EOF
 
 
 
-service mysql start
+service mysql restart
 echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; FLUSH PRIVILEGES;" | mysql
 echo 'CREATE DATABASE pushbox' | mysql
 echo 'CREATE DATABASE sync' | mysql
-service memcached start
+echo 'CREATE DATABASE basket' | mysql
+service memcached restart
 redis-server &
-service postfix start
+service postfix restart
 
 
 
@@ -417,7 +419,7 @@ cargo build
 
 
 cd /
-git clone git://github.com/mozilla/fxa-auth-server.git
+git clone https://github.com/mozilla/fxa-auth-server.git
 cd /fxa-auth-server
 f_python_ssl
 npm install
