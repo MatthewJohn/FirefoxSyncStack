@@ -32,6 +32,152 @@ source $HOME/.cargo/env
 #rustup default nightly
 #rustup update && cargo update
 
+f_python_ssl() {
+  apt-get install libssl1.0-dev node-gyp nodejs-dev npm --assume-yes
+}
+f_rust_ssl() {
+  apt-get install libssl-dev --assume-yes
+}
+
+# Install local SQS
+cd /
+git clone https://github.com/adamw/elasticmq
+cd /elasticmq
+wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
+
+
+# Install basket
+cd /
+git clone https://github.com/mozmeao/basket
+cd /basket
+f_python_ssl
+virtualenv .
+. ./bin/activate
+pip install --require-hashes --no-cache-dir -r requirements/prod.txt
+sed -i 's/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g' /basket/basket/settings.py
+deactivate
+
+
+# Install basket-proxy
+cd /
+git clone https://github.com/mozilla/fxa-basket-proxy
+cd /fxa-basket-proxy
+f_python_ssl
+npm install
+
+
+# Install pushbox
+cd /
+git clone https://github.com/mozilla-services/pushbox
+cd /pushbox
+#rm rust-toolchain
+f_rust_ssl
+cargo build || true
+#sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
+
+
+# Install fxa-email-service
+cd /
+git clone https://github.com/mozilla/fxa-email-service
+cd /fxa-email-service
+f_rust_ssl
+cargo build
+
+
+# Install browser ID
+cd /
+git clone https://github.com/mozilla/browserid-verifier.git
+cd /browserid-verifier
+f_python_ssl
+npm install
+
+
+# Install fxa-content-server
+cd /
+git clone https://github.com/mozilla/fxa-content-server
+cd /fxa-content-server
+f_python_ssl
+npm install npm@6 webpack@4.16.1 --global
+/usr/local/bin/npm install --production
+#npm install bluebird
+./scripts/download_l10n.sh
+/usr/local/bin/npm run build-production
+#grunt install
+#grunt server:dist
+
+
+# Install fxa-auth-server
+cd /
+git clone https://github.com/mozilla/fxa-auth-server.git
+cd /fxa-auth-server
+f_python_ssl
+npm install
+bash scripts/download_l10n.sh
+
+
+# Install fxa-auth-db-mysql
+cd /
+git clone https://github.com/mozilla/fxa-auth-db-mysql
+f_python_ssl
+npm install
+
+
+# Install fxa-profile-server
+cd /
+git clone https://github.com/mozilla/fxa-profile-server
+cd /fxa-profile-server
+f_python_ssl
+npm install
+sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
+#sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
+
+
+# Install fxa-customs-server
+cd /
+git clone https://github.com/mozilla/fxa-customs-server
+cd /fxa-customs-server
+f_python_ssl
+npm install
+
+
+# Install syncto
+cd /
+git clone https://github.com/mozilla-services/syncto.git
+f_python_ssl
+cd /syncto
+virtualenv .
+. ./bin/activate
+sed -i 's/cryptography==.*/cryptography/g' ./requirements.txt
+sed -i 's/cffi==.*/cffi/g' ./requirements.txt
+sed -i 's/idna==.*/cffi/g' ./requirements.txt
+pip install -r ./requirements.txt
+rm -rf /syncto/local/lib/python2.7/site-packages/OpenSSL
+python ./setup.py build
+python ./setup.py install
+deactivate
+
+
+# Install syncserver
+cd /
+git clone https://github.com/mozilla-services/syncserver
+cd /syncserver
+f_python_ssl
+# Upgrade of pip breaks it on ubuntu-18.04 (apparently)
+#pip install --upgrade pip
+#pip install --upgrade --no-cache-dir -r requirements.txt
+# pip install --upgrade --no-cache-dir -r dev-requirements.txt
+virtualenv .
+. ./bin/virtualenv
+make
+local/bin/pip install gunicorn
+deactivate
+
+
+
+
+
+
+
 cat > /settings_include.sh <<EOF
 export MYSQL_USER=root
 export MYSQL_PASSWORD=
@@ -125,12 +271,6 @@ export AWS_SECRET_ACCESS_KEY=sqsinstance
 EOF
 . /settings_include.sh
 
-f_python_ssl() {
-  apt-get install libssl1.0-dev node-gyp nodejs-dev npm --assume-yes
-}
-f_rust_ssl() {
-  apt-get install libssl-dev --assume-yes
-}
 
 
 
@@ -141,12 +281,7 @@ f_rust_ssl() {
 
 
 
-
-# Install local SQS
-cd /
-git clone https://github.com/adamw/elasticmq
 cd /elasticmq
-wget https://s3-eu-west-1.amazonaws.com/softwaremill-public/elasticmq-server-0.14.6.jar
 cat > /elasticmq/custom.conf <<EOF
 include classpath("application.conf")
 
@@ -241,14 +376,8 @@ service postfix restart
 
 
 
-cd /
-git clone https://github.com/mozmeao/basket
 cd /basket
-f_python_ssl
-virtualenv .
 . ./bin/activate
-pip install --require-hashes --no-cache-dir -r requirements/prod.txt
-sed -i 's/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g' /basket/basket/settings.py
 DEBUG=False SECRET_KEY=${BASKET_SECRET_KEY} ALLOWED_HOSTS=localhost, DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket \
     ./manage.py collectstatic --noinput
 SECRET_KEY=${BASKET_SECRET_KEY} DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/basket ./manage.py migrate
@@ -264,10 +393,7 @@ deactivate
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-basket-proxy
 cd /fxa-basket-proxy
-f_python_ssl
 cat > /fxa-basket-proxy/config/production.json <<EOF
 {
   "env": "production",
@@ -288,7 +414,6 @@ cat > /fxa-basket-proxy/config/production.json <<EOF
   }
 }
 EOF
-npm install
 # cat > /fxa-basket-proxy/node_modules/aws-sdk/lib/region_config_data.json <<EOF
 # {
 #   "rules": {
@@ -314,10 +439,7 @@ npm install
 
 
 
-cd /
-git clone https://github.com/mozilla-services/pushbox
 cd /pushbox
-#rm rust-toolchain
 cat > /pushbox/Rocket.toml <<EOF
 [production]
 ## Database DSN URL.
@@ -334,10 +456,6 @@ sqs_url="${PUSHBOX_SQS_QUEUE_URL}"
 json = 1048576
 EOF
 
-f_rust_ssl
-
-cargo build || true
-#sed -i 's/^edition/#edition/g' /root/.cargo/registry/src/github.com*/atoi-0.2.4/Cargo.toml
 
 
 
@@ -348,10 +466,7 @@ cargo build || true
 
 
 
-
-
-cd /
-git clone https://github.com/mozilla/fxa-email-service
+# Configure fx-email-service
 cd /fxa-email-service
 rm /fxa-email-service/config/dev.json
 cat > /fxa-email-service/config/default.json <<EOF
@@ -402,8 +517,6 @@ cat > /fxa-email-service/config/default.json <<EOF
   }
 }
 EOF
-f_rust_ssl
-cargo build
 
 
 
@@ -418,12 +531,7 @@ cargo build
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-auth-server.git
 cd /fxa-auth-server
-f_python_ssl
-npm install
-bash scripts/download_l10n.sh
 cat > /fxa-auth-server/config/prod.json <<EOF
 {
   "contentServer": {
@@ -570,12 +678,7 @@ NODE_ENV=prod node ./scripts/gen_vapid_keys.js
 
 
 
-
-cd /
-git clone https://github.com/mozilla/browserid-verifier.git
 cd /browserid-verifier
-f_python_ssl
-npm install
 cat > /browserid-verifier/config/production.json <<EOF
 {
     "logging": {
@@ -612,17 +715,7 @@ EOF
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-content-server
 cd /fxa-content-server
-f_python_ssl
-npm install npm@6 webpack@4.16.1 --global
-/usr/local/bin/npm install --production
-#npm install bluebird
-./scripts/download_l10n.sh
-/usr/local/bin/npm run build-production
-#grunt install
-#grunt server:dist
 rm /fxa-content-server/server/config/local.json
 rm /fxa-content-server/server/config/fxaci.json
 cat > /fxa-content-server/server/config/production.json <<EOF
@@ -683,11 +776,8 @@ EOF
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-auth-db-mysql
 cd /fxa-auth-db-mysql
-f_python_ssl
-npm install
+node bin/db_patcher.js
 cat > /fxa-auth-db-mysql/config/config.js <<EOF
 
 /* This Source Code Form is subject to the terms of the Mozilla Public
@@ -884,7 +974,6 @@ module.exports = function (fs, path, url, convict) {
   return conf.getProperties()
 }
 EOF
-node bin/db_patcher.js
 
 
 
@@ -894,14 +983,8 @@ node bin/db_patcher.js
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-profile-server
-cd fxa-profile-server
-f_python_ssl
-npm install
-sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
-#sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
 
+cd /fxa-profile-server
 cat > /fxa-profile-server/config/production.json <<EOF
 {
   "env": "production",
@@ -974,29 +1057,9 @@ EOF
 
 
 
-cd /
-git clone https://github.com/mozilla/fxa-customs-server
-cd /fxa-customs-server
-f_python_ssl
-npm install
 
 
-
-
-
-
-
-cd /
-git clone https://github.com/mozilla-services/syncto.git
-f_python_ssl
 cd /syncto
-virtualenv .
-. ./bin/activate
-sed -i 's/cryptography==.*/cryptography/g' ./requirements.txt
-sed -i 's/cffi==.*/cffi/g' ./requirements.txt
-sed -i 's/idna==.*/cffi/g' ./requirements.txt
-pip install -r ./requirements.txt
-rm -rf /syncto/local/lib/python2.7/site-packages/OpenSSL
 cat > /syncto/config/production.ini <<EOF
 [app:main]
 use = egg:syncto
@@ -1020,25 +1083,10 @@ host = 0.0.0.0
 port = ${SYNCTO_PORT}
 
 EOF
-python ./setup.py build
-python ./setup.py install
-deactivate
 
 
 
-
-cd /
-git clone https://github.com/mozilla-services/syncserver
 cd /syncserver
-f_python_ssl
-# Upgrade of pip breaks it on ubuntu-18.04 (apparently)
-#pip install --upgrade pip
-#pip install --upgrade --no-cache-dir -r requirements.txt
-# pip install --upgrade --no-cache-dir -r dev-requirements.txt
-virtualenv .
-. ./bin/virtualenv
-make
-local/bin/pip install gunicorn
 export SYNCSERVER_SECRET=$(head -c 20 /dev/urandom | sha1sum | awk '{ print $1 }')
 cat > /syncserver/syncserver.ini <<EOF
 [server:main]
@@ -1090,7 +1138,7 @@ force_wsgi_environ = true
 
 forwarded_allow_ips = *
 EOF
-deactivate
+
 
 
 
