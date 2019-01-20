@@ -36,7 +36,7 @@ RUN bash -c '. /environ.sh; cd /; \
     git clone https://github.com/mozmeao/basket; \
     cd /basket; f_python_ssl; virtualenv .; . ./bin/activate; \
     pip install --require-hashes --no-cache-dir -r requirements/prod.txt; \
-    sed -i 's/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g' /basket/basket/settings.py; \
+    sed -i "s/ storage_engine=InnoDB/ default_storage_engine=InnoDB/g" /basket/basket/settings.py; \
     deactivate'
 
 
@@ -106,13 +106,13 @@ RUN bash -c '. /environ.sh; cd /; \
 
 
 # Install syncto
-RUN bash -c '. /environ.sh; cd /; \
+RUN echo bash -c '. /environ.sh; cd /; \
     git clone https://github.com/mozilla-services/syncto.git; \
     cd /synctol; f_python_ssl; virtualenv .; \
     . ./bin/activate; \
-    sed -i \'s/cryptography==.*/cryptography/g\' ./requirements.txt; \
-    sed -i \'s/cffi==.*/cffi/g\' ./requirements.txt; \
-    sed -i \'s/idna==.*/cffi/g\' ./requirements.txt; \
+    sed -i "s/cryptography==.*/cryptography/g" ./requirements.txt; \
+    sed -i "s/cffi==.*/cffi/g" ./requirements.txt; \
+    sed -i "s/idna==.*/cffi/g" ./requirements.txt; \
     pip install -r ./requirements.txt; \
     rm -rf /syncto/local/lib/python2.7/site-packages/OpenSSL; \
     python ./setup.py build; \
@@ -124,8 +124,9 @@ RUN bash -c '. /environ.sh; cd /; \
 RUN bash -c '. /environ.sh; cd /; \
     git clone https://github.com/mozilla-services/syncserver; \
     cd /syncserver; f_python_ssl; \
-    virtualenv .; . ./bin/virtualenv; \
-    make; local/bin/pip install gunicorn; deactivate'
+    make; \
+    . ./bin/activate; \
+    local/bin/pip install gunicorn; deactivate'
 # Upgrade of pip breaks it on ubuntu-18.04 (apparently)
 #pip install --upgrade pip
 #pip install --upgrade --no-cache-dir -r requirements.txt

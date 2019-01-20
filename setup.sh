@@ -7,7 +7,7 @@
 # fxa-oauth-client
 
 set -e
-set +x
+set -x
 
 
 
@@ -549,8 +549,8 @@ EOF
 
 
 cd /fxa-content-server
-rm /fxa-content-server/server/config/local.json
-rm /fxa-content-server/server/config/fxaci.json
+rm -f /fxa-content-server/server/config/local.json
+rm -f /fxa-content-server/server/config/fxaci.json
 cat > /fxa-content-server/server/config/production.json <<EOF
 {
   "public_url": "${CONTENT_EXTERNAL_URL}",
@@ -610,7 +610,6 @@ EOF
 
 
 cd /fxa-auth-db-mysql
-node bin/db_patcher.js
 cat > /fxa-auth-db-mysql/config/config.js <<EOF
 
 /* This Source Code Form is subject to the terms of the Mozilla Public
@@ -807,6 +806,8 @@ module.exports = function (fs, path, url, convict) {
   return conf.getProperties()
 }
 EOF
+npm install
+node bin/db_patcher.js
 
 
 
@@ -891,7 +892,8 @@ EOF
 
 
 
-
+# Temporary
+mkdir -p /syncto/config
 cd /syncto
 cat > /syncto/config/production.ini <<EOF
 [app:main]
@@ -1144,6 +1146,7 @@ server {
    }
 }
 EOF
+sed -i 's/^.*#.*server_names_hash_bucket_size.*$/  server_names_hash_bucket_size 64;/g' /etc/nginx/nginx.conf
 
 #docker cp  /fxa-auth-server/config/index.js
 #docker cp /fxa-content-server/server/config/local.json
@@ -1184,20 +1187,34 @@ service postfix restart
 export PATH=$PATH:$HOME/.cargo/bin
 source $HOME/.cargo/env
 
+unset http_proxy
+unset https_proxy
+
 pushd /elasticmq; java -Dconfig.file=custom.conf -jar elasticmq-server-0.14.6.jar & popd
+sleep 10
 pushd /pushbox; AWS_LOCAL_SQS=${SQS_BASE_URL} ROCKET_ENV=production ROCKET_PORT=${PUSHBOX_INTERNAL_PORT} ROCKET_DATABASE_URL="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@localhost/pushbox" cargo run & popd
+sleep 10
 pushd /browserid-verifier; NODE_ENV=production CONFIG_FILES=config/production.json node /browserid-verifier/server.js & popd;
+sleep 10
 pushd /fxa-email-service; ROCKET_ENV=production ROCKET_TOKEN=${PUSHBOX_ROCKET_TOKEN} cargo r --bin fxa_email_send & popd
+sleep 10
 pushd /fxa-auth-db-mysql; NODE_ENV=prod npm start & popd
+sleep 10
 pushd /fxa-customs-server; NODE_ENV=prod node /fxa-customs-server/bin/customs_server.js & popd
+sleep 10
 pushd /fxa-auth-server; NODE_ENV=prod /fxa-auth-server/scripts/start-server.sh & popd
+sleep 10
 pushd /fxa-auth-server/fxa-oauth-server; NODE_ENV=prod node /fxa-auth-server/fxa-oauth-server/bin/server.js & popd
+sleep 10
 
 pushd /fxa-content-server; NODE_ENV=production npm run start-production & popd
+sleep 40
 pushd /fxa-profile-server; NODE_ENV=production npm start & popd
+sleep 10
 
 pushd /fxa-basket-proxy; NODE_ENV=production CONFIG_FILES=config/production.json node /fxa-basket-proxy/bin/basket-event-handler.js &
                          NODE_ENV=production CONFIG_FILES=config/production.json node bin/basket-proxy-server.js & popd
+sleep 10
 
 
 # pushd /syncto; . ./bin/activate; gunicorn --bind ${SYNCTO_HOST}:${SYNCTO_PORT} \
@@ -1208,6 +1225,7 @@ pushd /fxa-basket-proxy; NODE_ENV=production CONFIG_FILES=config/production.json
 pushd /syncto; . ./bin/activate;
   python /syncto/lib/python2.7/site-packages/cliquet/scripts/cliquet.py --ini /syncto/config/production.ini migrate;
   python /syncto/local/lib/python2.7/site-packages/pyramid/scripts/pserve.py /syncto/config/production.ini --reload & deactivate; popd
+sleep 10
 
 
 pushd /basket; . ./bin/activate;
@@ -1224,6 +1242,7 @@ pushd /basket; . ./bin/activate;
   #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-fxa-events-worker.sh &
   #SECRET_KEY=${BASKET_SECRET_KEY} ./bin/run-worker.sh &
 deactivate; popd
+sleep 10
 
 pushd /syncserver; . ./bin/activate; /syncserver/local/bin/gunicorn --bind ${SYNC_INTERNAL_HOST}:${SYNC_INTERNAL_PORT} \
                                                   --forwarded-allow-ips="127.0.0.1,172.17.0.1" \
