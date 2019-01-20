@@ -93,9 +93,10 @@ RUN bash -c '. /environ.sh; cd /; \
 
 
 # Install fxa-profile-server
-RUN cd /; git clone https://github.com/mozilla/fxa-profile-server; \
+RUN bash -c '. /environ.sh; cd /; \
+    git clone https://github.com/mozilla/fxa-profile-server; \
     cd /fxa-profile-server; f_python_ssl; npm install; \
-    sed -i '/process.env.NODE_ENV/d' scripts/run_dev.js
+    sed -i "/process.env.NODE_ENV/d" scripts/run_dev.js'
 #sed -i "s/throw new Error('config.events must be included in prod');/logger.warn('');/g" lib/events.js
 
 

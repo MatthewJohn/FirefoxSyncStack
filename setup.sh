@@ -15,6 +15,7 @@ cat > /settings_include.sh <<EOF
 export MYSQL_USER=root
 export MYSQL_PASSWORD=
 export BASE_DOMAIN=${BASE_DOMAIN}
+export BASE_DOMAIN_REGEX=$(echo $BASE_DOMAIN | sed 's/\./\\./g')
 export PUSHBOX_ROCKET_TOKEN=$(openssl rand -base64 32)
 export MAIl_ROCKET_TOKEN=$(openssl rand -base64 32)
 export BASKET_SECRET_KEY=$(openssl rand -base64 32)
@@ -64,6 +65,7 @@ export AUTH_DB_INTERNAL_URL=http://\${AUTH_DB_INTERNAL_HOST}:\${AUTH_DB_INTERNAL
 export PUSHBOX_INTERNAL_HOST=127.0.0.1
 export PUSHBOX_INTERNAL_PORT=8002
 export PUSHBOX_INTERNAL_URL=http://\${PUSHBOX_INTERNAL_HOST}:\${PUSHBOX_INTERNAL_PORT}/
+export PUSHBOX_EXTERNAL_URL=https://pushbox.\${BASE_DOMAIN}
 
 export BROWSERID_VERIFIER_HOST=127.0.0.1
 export BROWSERID_VERIFIER_PORT=5050
@@ -404,10 +406,13 @@ cat > /fxa-auth-server/config/prod.json <<EOF
     "enabled": true,
     "sampleRate": 1
   },
+  "push": {
+    "allowedServerRegex": "/^https:\/\/[a-zA-Z0-9._-]+(\.${BASE_DOMAIN_REGEX})(?:\:\d+)?(\/.*)?\$"
+  },
   "pushbox": {
     "enabled": true,
-    "url": "${PUSHBOX_INTERNAL_URL}",
-    "key": "${ROCKET_TOKEN}",
+    "url": "${PUSHBOX_EXTERNAL_URL}/",
+    "key": "${PUSHBOX_ROCKET_TOKEN}",
     "maxTTL": "28 days"
   },
   "metrics": {
@@ -478,7 +483,7 @@ cat > /fxa-auth-server/fxa-oauth-server/config/prod.json <<EOF
   },
   "browserid": {
     "issuer": "${AUTH_EXTERNAL_DOMAIN}",
-    "verificationUrl": "${BROWSERID_VERIFIER_INTERNAL_URL}/v2"
+    "verificationUrl": "${BROWSERID_VERIFIER_EXTERNAL_URL}/v2"
   },
   "contentUrl": "${CONTENT_EXTERNAL_URL}/oauth/",
   "admin": {
@@ -572,7 +577,7 @@ cat > /fxa-content-server/server/config/production.json <<EOF
     "api_url": "${BASKET_INTERNAL_URL}",
     "proxy_url": "${BASKET_PROXY_EXTERNAL_URL}"
   },
-  "sync_tokenserver_url": "https://sync.${BASE_DOMAIN}/token",
+  "sync_tokenserver_url": "${SYNC_EXTERNAL_URL}/token",
   "client_sessions": {
     "cookie_name": "session",
     "secret": "changeme",
@@ -1096,6 +1101,24 @@ server {
     proxy_read_timeout 120;
     proxy_connect_timeout 10;
     proxy_pass ${OAUTH_INTERNAL_URL}/;
+   }
+}
+server {
+  listen 443 ssl;
+  server_name pushbox.${BASE_DOMAIN};
+
+  ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  location / {
+    proxy_set_header Host \$http_host;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_redirect off;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 10;
+    proxy_pass ${PUSHBOX_INTERNAL_URL}/;
    }
 }
 server {
