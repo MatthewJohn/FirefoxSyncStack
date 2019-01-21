@@ -128,6 +128,28 @@ RUN bash -c '. /environ.sh; cd /; \
     make; \
     . ./bin/activate; \
     local/bin/pip install gunicorn; deactivate'
+
+# Install dynamodb
+RUN wget -O /tmp/dynamodb_local_latest https://s3-us-west-2.amazonaws.com/dynamodb-local/dynamodb_local_latest.tar.gz && \
+    tar xfz /tmp/dynamodb_local_latest && \
+    rm -f /tmp/dynamodb_local_latest && \
+    mkdir /var/dynamodb_local
+
+# Install autopush
+RUN cd / && \
+    git clone https://github.com/mozilla-services/autopush && \
+    cd /autopush && \
+    make clean && \
+    virtualenv . && \
+    . ./bin/activate && \
+    pip install -r requirements.txt && \
+    python ./setup.py install && \
+    deactivate
+
+
+
+
+
 # Upgrade of pip breaks it on ubuntu-18.04 (apparently)
 #pip install --upgrade pip
 #pip install --upgrade --no-cache-dir -r requirements.txt
