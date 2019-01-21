@@ -125,6 +125,7 @@ RUN echo bash -c '. /environ.sh; cd /; \
 RUN bash -c '. /environ.sh; cd /; \
     git clone https://github.com/mozilla-services/syncserver; \
     cd /syncserver; f_python_ssl; \
+    virtualenv .; \
     make; \
     . ./bin/activate; \
     local/bin/pip install gunicorn; deactivate'
